@@ -1,0 +1,5 @@
+id: dev-postgres
+name: Development PostgreSQL
+kind: postgres
+dsn: postgres://user1306:eDc123456@localhost:5432/finance_01?sslmode=disable
+schema: public

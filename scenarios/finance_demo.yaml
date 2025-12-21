@@ -1,0 +1,82 @@
+id: finance_demo
+name: Finance Demo
+version: 1.0.0
+description: Simple finance scenario with accounts and transactions
+
+entities:
+  - name: accounts
+    target_table: accounts
+    rows: 100
+    columns:
+      - name: id
+        type: bigint
+        generator:
+          type: uniform_int
+          params:
+            min: 1000000
+            max: 9999999
+      - name: account_holder
+        type: string
+        generator:
+          type: faker_name
+      - name: account_type
+        type: string
+        generator:
+          type: choice
+          params:
+            values: ["checking", "savings", "investment"]
+            weights: [0.5, 0.3, 0.2]
+      - name: balance
+        type: float
+        generator:
+          type: uniform_float
+          params:
+            min: 100.0
+            max: 50000.0
+      - name: created_at
+        type: timestamp
+        generator:
+          type: time_series
+          params:
+            start: "-365d"
+            step: "3d"
+
+  - name: transactions
+    target_table: transactions
+    rows: 10000
+    columns:
+      - name: id
+        type: bigint
+        generator:
+          type: uniform_int
+          params:
+            min: 1
+            max: 10000000
+      - name: account_id
+        type: bigint
+        generator:
+          type: fk
+          params:
+            entity: accounts
+            column: id
+      - name: amount
+        type: float
+        generator:
+          type: normal
+          params:
+            mean: 250.0
+            std: 500.0
+      - name: transaction_type
+        type: string
+        generator:
+          type: choice
+          params:
+            values: ["debit", "credit"]
+      - name: timestamp
+        type: timestamp
+        generator:
+          type: time_series
+          params:
+            start: "-90d"
+            step: "15m"
+            jitter_seconds: 300
