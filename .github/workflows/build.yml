@@ -1,0 +1,94 @@
+name: build
+
+on:
+  push:
+    tags:
+      - "v*"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build (${{ matrix.goos }} / ${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux
+          - runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            target: sdgen
+            ext: ""
+          - runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            target: sdgen-api
+            ext: ""
+
+          # Windows
+          - runner: windows-latest
+            goos: windows
+            goarch: amd64
+            target: sdgen
+            ext: ".exe"
+          - runner: windows-latest
+            goos: windows
+            goarch: amd64
+            target: sdgen-api
+            ext: ".exe"
+
+    env:
+      GO_VERSION: "1.25.x"
+      CGO_ENABLED: "0"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Build
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          # If manually triggered, VERSION is "manual-<sha>"
+          VERSION="${GITHUB_REF_NAME}"
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            VERSION="manual-$(git rev-parse --short HEAD)"
+          fi
+
+          OUT="dist/${{ matrix.target }}_${{ matrix.goos }}_${{ matrix.goarch }}${{ matrix.ext }}"
+
+          go build \
+            -trimpath \
+            -ldflags "-s -w" \
+            -o "${OUT}" \
+            "./cmd/${{ matrix.target }}"
+
+          ls -lah dist
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}_${{ matrix.goos }}_${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30
+
