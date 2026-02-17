@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/mmrzaf/sdgen/internal/domain"
 	"gopkg.in/yaml.v3"
@@ -73,38 +72,7 @@ func (r *FileRepository) Get(id string) (*domain.Scenario, error) {
 }
 
 func (r *FileRepository) GetByPath(path string) (*domain.Scenario, error) {
-	resolved, err := r.resolveScenarioPath(path)
-	if err != nil {
-		return nil, err
-	}
-	return r.loadScenario(resolved)
-}
-
-func (r *FileRepository) resolveScenarioPath(path string) (string, error) {
-	if path == "" {
-		return "", fmt.Errorf("empty scenario path")
-	}
-	baseAbs, err := filepath.Abs(r.baseDir)
-	if err != nil {
-		return "", err
-	}
-
-	candidate := path
-	if !filepath.IsAbs(candidate) {
-		candidate = filepath.Join(r.baseDir, candidate)
-	}
-	candidateAbs, err := filepath.Abs(filepath.Clean(candidate))
-	if err != nil {
-		return "", err
-	}
-	rel, err := filepath.Rel(baseAbs, candidateAbs)
-	if err != nil {
-		return "", err
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("scenario path must be inside scenarios dir")
-	}
-	return candidateAbs, nil
+	return r.loadScenario(path)
 }
 
 func (r *FileRepository) loadScenario(path string) (*domain.Scenario, error) {

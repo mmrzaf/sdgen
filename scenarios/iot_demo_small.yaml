@@ -1,0 +1,76 @@
+id: iot_demo_small
+name: IoT Demo Small
+version: 1.0.0
+description: Small IoT sensor data scenario for testing
+seed: 12345
+
+entities:
+  - name: devices
+    target_table: devices
+    rows: 50
+    columns:
+      - name: id
+        type: uuid
+        generator:
+          type: uuid4
+      - name: device_name
+        type: string
+        generator:
+          type: faker_device_name
+      - name: location
+        type: string
+        generator:
+          type: faker_city
+      - name: installed_at
+        type: timestamp
+        generator:
+          type: time_series
+          params:
+            start: "-30d"
+            step: "1d"
+            jitter_seconds: 3600
+
+  - name: readings
+    target_table: sensor_readings
+    rows: 5000
+    columns:
+      - name: id
+        type: uuid
+        generator:
+          type: uuid4
+      - name: device_id
+        type: uuid
+        generator:
+          type: fk
+          params:
+            entity: devices
+            column: id
+      - name: timestamp
+        type: timestamp
+        generator:
+          type: time_series
+          params:
+            start: "-7d"
+            step: "5m"
+            jitter_seconds: 60
+      - name: temperature
+        type: float
+        generator:
+          type: normal
+          params:
+            mean: 22.5
+            std: 3.0
+      - name: humidity
+        type: float
+        generator:
+          type: uniform_float
+          params:
+            min: 30.0
+            max: 80.0
+      - name: status
+        type: string
+        generator:
+          type: choice
+          params:
+            values: ["online", "offline", "maintenance"]
+            weights: [0.8, 0.15, 0.05]

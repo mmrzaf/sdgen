@@ -6,34 +6,24 @@ import (
 )
 
 //go:embed templates/*.html
-var templatesFS embed.FS
+var templates embed.FS
 
 func IndexHandler(w http.ResponseWriter, r *http.Request) {
-	data, err := templatesFS.ReadFile("templates/index.html")
+	data, err := templates.ReadFile("templates/index.html")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Template not found", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(data)
-}
-
-func TargetsHandler(w http.ResponseWriter, r *http.Request) {
-	data, err := templatesFS.ReadFile("templates/targets.html")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(data)
+	w.Header().Set("Content-Type", "text/html")
+	w.Write(data)
 }
 
 func RunDetailHandler(w http.ResponseWriter, r *http.Request) {
-	data, err := templatesFS.ReadFile("templates/run.html")
+	data, err := templates.ReadFile("templates/run.html")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Template not found", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(data)
+	w.Header().Set("Content-Type", "text/html")
+	w.Write(data)
 }

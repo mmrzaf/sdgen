@@ -43,7 +43,7 @@ func (t *SQLiteTarget) CreateTableIfNotExists(entity *domain.Entity) error {
 	var name string
 	err := t.db.QueryRow(query, entity.TargetTable).Scan(&name)
 	if err == nil {
-		return t.validateExistingTable(entity)
+		return nil
 	}
 	if err != sql.ErrNoRows {
 		return err
@@ -66,46 +66,6 @@ func (t *SQLiteTarget) CreateTableIfNotExists(entity *domain.Entity) error {
 	return err
 }
 
-func (t *SQLiteTarget) validateExistingTable(entity *domain.Entity) error {
-	rows, err := t.db.Query(fmt.Sprintf(`PRAGMA table_info(%s)`, entity.TargetTable))
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	type colInfo struct {
-		name string
-		typ  string
-	}
-	existing := map[string]colInfo{}
-	for rows.Next() {
-		var cid int
-		var name, typ string
-		var notnull int
-		var dflt sql.NullString
-		var pk int
-		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
-			return err
-		}
-		existing[name] = colInfo{name: name, typ: strings.ToUpper(strings.TrimSpace(typ))}
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-
-	for _, col := range entity.Columns {
-		got, ok := existing[col.Name]
-		if !ok {
-			return fmt.Errorf("existing table %s missing column %s", entity.TargetTable, col.Name)
-		}
-		expectedType := t.mapColumnType(col.Type)
-		if !sqliteTypeCompatible(expectedType, got.typ) {
-			return fmt.Errorf("existing table %s column %s type mismatch: expected %s, got %s", entity.TargetTable, col.Name, expectedType, got.typ)
-		}
-	}
-	return nil
-}
-
 func (t *SQLiteTarget) mapColumnType(colType domain.ColumnType) string {
 	switch colType {
 	case domain.ColumnTypeInt:
@@ -125,25 +85,6 @@ func (t *SQLiteTarget) mapColumnType(colType domain.ColumnType) string {
 	default:
 		return "TEXT"
 	}
-}
-
-func sqliteTypeCompatible(expected, actual string) bool {
-	expected = strings.ToUpper(expected)
-	actual = strings.ToUpper(actual)
-	if expected == actual {
-		return true
-	}
-	// SQLite type affinity allows INTEGER variants to interoperate.
-	if expected == "INTEGER" && strings.Contains(actual, "INT") {
-		return true
-	}
-	if expected == "REAL" && (strings.Contains(actual, "REAL") || strings.Contains(actual, "FLOAT") || strings.Contains(actual, "DOUBLE")) {
-		return true
-	}
-	if expected == "TEXT" && (strings.Contains(actual, "TEXT") || strings.Contains(actual, "CHAR") || strings.Contains(actual, "CLOB") || actual == "") {
-		return true
-	}
-	return false
 }
 
 func (t *SQLiteTarget) TruncateTable(tableName string) error {
