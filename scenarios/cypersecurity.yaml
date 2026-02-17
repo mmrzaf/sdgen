@@ -1,17 +1,18 @@
 id: cypersecurity
-name: Cybersecurity SOC and Identity Graph
-version: 1.0.0
+name: Cybersecurity SOC and Identity Graph v2
+version: 2.0.0
+description: Security operations dataset for identity-asset graph analysis, auth anomalies, incidents, and NLP triage notes.
 seed: 20260217
 entities:
-  - name: organizations
-    target_table: organizations
-    rows: 8000
+  - name: cypersecurity_organizations
+    target_table: cypersecurity_organizations
+    rows: 12000
     columns:
       - name: organization_id
         type: uuid
         generator:
           type: uuid4
-      - name: org_name
+      - name: organization_name
         type: string
         generator:
           type: faker_name
@@ -20,17 +21,24 @@ entities:
         generator:
           type: choice
           params:
-            values: [finance, healthcare, retail, manufacturing, public, telecom]
+            values: [finance, healthcare, retail, manufacturing, government, telecom, energy]
       - name: region
         type: string
         generator:
           type: choice
           params:
             values: [na, emea, apac, latam]
+      - name: security_maturity
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [foundational, developing, advanced, optimized]
+            weights: [0.21, 0.38, 0.31, 0.1]
 
-  - name: identities
-    target_table: identities
-    rows: 1200000
+  - name: cypersecurity_identities
+    target_table: cypersecurity_identities
+    rows: 1900000
     columns:
       - name: identity_id
         type: uuid
@@ -41,30 +49,37 @@ entities:
         generator:
           type: fk
           params:
-            entity: organizations
+            entity: cypersecurity_organizations
             column: organization_id
       - name: display_name
         type: string
         generator:
           type: faker_name
-      - name: role
+      - name: identity_type
         type: string
         generator:
           type: choice
           params:
             values: [employee, contractor, admin, service_account, vendor]
-            weights: [0.61, 0.17, 0.08, 0.1, 0.04]
-      - name: trust_level
+            weights: [0.62, 0.16, 0.08, 0.1, 0.04]
+      - name: privilege_tier
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [standard, elevated, privileged, break_glass]
+            weights: [0.72, 0.18, 0.09, 0.01]
+      - name: identity_risk_score
         type: int
         generator:
           type: uniform_int
           params:
             min: 1
-            max: 11
+            max: 100
 
-  - name: assets
-    target_table: assets
-    rows: 2400000
+  - name: cypersecurity_assets
+    target_table: cypersecurity_assets
+    rows: 3600000
     columns:
       - name: asset_id
         type: uuid
@@ -75,14 +90,14 @@ entities:
         generator:
           type: fk
           params:
-            entity: organizations
+            entity: cypersecurity_organizations
             column: organization_id
       - name: asset_type
         type: string
         generator:
           type: choice
           params:
-            values: [server, workstation, laptop, firewall, router, container, vm]
+            values: [server, workstation, laptop, firewall, router, container, vm, database]
       - name: operating_system
         type: string
         generator:
@@ -94,12 +109,19 @@ entities:
         generator:
           type: choice
           params:
-            values: [low, medium, high, crown]
-            weights: [0.38, 0.38, 0.19, 0.05]
+            values: [low, medium, high, crown_jewel]
+            weights: [0.33, 0.4, 0.21, 0.06]
+      - name: exposure_zone
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [internal, dmz, partner, public]
+            weights: [0.61, 0.19, 0.12, 0.08]
 
-  - name: auth_events
-    target_table: auth_events
-    rows: 90000000
+  - name: cypersecurity_auth_events
+    target_table: cypersecurity_auth_events
+    rows: 110000000
     columns:
       - name: auth_event_id
         type: uuid
@@ -110,44 +132,51 @@ entities:
         generator:
           type: fk
           params:
-            entity: identities
+            entity: cypersecurity_identities
             column: identity_id
       - name: asset_id
         type: uuid
         generator:
           type: fk
           params:
-            entity: assets
+            entity: cypersecurity_assets
             column: asset_id
       - name: auth_method
         type: string
         generator:
           type: choice
           params:
-            values: [password, mfa, certificate, token, kerberos, oauth]
+            values: [password, mfa_push, certificate, token, kerberos, oauth]
       - name: outcome
         type: string
         generator:
           type: choice
           params:
             values: [success, failure, challenge]
-            weights: [0.84, 0.13, 0.03]
+            weights: [0.83, 0.14, 0.03]
       - name: source_city
         type: string
         generator:
           type: faker_city
+      - name: source_reputation
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [trusted, unknown, suspicious, blocked]
+            weights: [0.61, 0.27, 0.1, 0.02]
       - name: observed_at
         type: timestamp
         generator:
           type: time_series
           params:
-            start: "-90d"
-            step: "4ms"
-            jitter_seconds: 5
+            start: "-120d"
+            step: "3ms"
+            jitter_seconds: 6
 
-  - name: incidents
-    target_table: incidents
-    rows: 1400000
+  - name: cypersecurity_incidents
+    target_table: cypersecurity_incidents
+    rows: 1800000
     columns:
       - name: incident_id
         type: uuid
@@ -158,46 +187,108 @@ entities:
         generator:
           type: fk
           params:
-            entity: organizations
+            entity: cypersecurity_organizations
             column: organization_id
       - name: primary_asset_id
         type: uuid
         generator:
           type: fk
           params:
-            entity: assets
+            entity: cypersecurity_assets
             column: asset_id
       - name: primary_identity_id
         type: uuid
         generator:
           type: fk
           params:
-            entity: identities
+            entity: cypersecurity_identities
             column: identity_id
       - name: category
         type: string
         generator:
           type: choice
           params:
-            values: [credential_abuse, malware, phishing, lateral_movement, exfiltration, ransomware]
+            values: [credential_abuse, malware, phishing, lateral_movement, exfiltration, ransomware, insider_risk]
       - name: severity
         type: string
         generator:
           type: choice
           params:
             values: [sev4, sev3, sev2, sev1]
-            weights: [0.35, 0.4, 0.2, 0.05]
+            weights: [0.36, 0.39, 0.2, 0.05]
       - name: status
         type: string
         generator:
           type: choice
           params:
-            values: [open, triaged, contained, resolved]
+            values: [new, triaged, contained, eradicated, resolved]
+            weights: [0.16, 0.28, 0.18, 0.12, 0.26]
+      - name: nlp_triage_note
+        type: text
+        generator:
+          type: choice
+          params:
+            values:
+              - multiple failed authentications followed by impossible travel success
+              - suspicious powershell chain observed on endpoint with elevated privileges
+              - outbound transfer volume exceeded baseline and matched known exfil pattern
+              - phishing campaign produced token replay across several admin accounts
       - name: opened_at
         type: timestamp
         generator:
           type: time_series
           params:
-            start: "-90d"
-            step: "180ms"
+            start: "-120d"
+            step: "150ms"
+            jitter_seconds: 240
+
+  - name: cypersecurity_incident_links
+    target_table: cypersecurity_incident_links
+    rows: 5400000
+    columns:
+      - name: incident_link_id
+        type: uuid
+        generator:
+          type: uuid4
+      - name: incident_id
+        type: uuid
+        generator:
+          type: fk
+          params:
+            entity: cypersecurity_incidents
+            column: incident_id
+      - name: linked_identity_id
+        type: uuid
+        generator:
+          type: fk
+          params:
+            entity: cypersecurity_identities
+            column: identity_id
+      - name: linked_asset_id
+        type: uuid
+        generator:
+          type: fk
+          params:
+            entity: cypersecurity_assets
+            column: asset_id
+      - name: relationship_type
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [observed_on, lateral_move_to, credential_used_on, c2_contact_from, data_staged_on]
+      - name: confidence_score
+        type: float
+        generator:
+          type: uniform_float
+          params:
+            min: 0.2
+            max: 0.99
+      - name: linked_at
+        type: timestamp
+        generator:
+          type: time_series
+          params:
+            start: "-120d"
+            step: "60ms"
             jitter_seconds: 120

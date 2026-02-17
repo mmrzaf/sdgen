@@ -10,8 +10,6 @@ build:
 clean:
 	@echo "Cleaning..."
 	rm -rf bin/
-	rm -f sdgen-runs.sqlite
-	rm -f dev.db
 	@echo "Clean complete"
 
 test:

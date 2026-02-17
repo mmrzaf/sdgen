@@ -16,7 +16,6 @@ import (
 	"github.com/mmrzaf/sdgen/internal/infra/repos/targets"
 	esTarget "github.com/mmrzaf/sdgen/internal/infra/targets/elasticsearch"
 	pgTarget "github.com/mmrzaf/sdgen/internal/infra/targets/postgres"
-	sqliteTarget "github.com/mmrzaf/sdgen/internal/infra/targets/sqlite"
 	"github.com/mmrzaf/sdgen/internal/logging"
 	"github.com/mmrzaf/sdgen/internal/registry"
 	"github.com/mmrzaf/sdgen/internal/validation"
@@ -25,7 +24,7 @@ import (
 type RunService struct {
 	scenarioRepo *scenarios.FileRepository
 	targetRepo   targets.Repository
-	runRepo      *runs.SQLiteRepository
+	runRepo      runs.Repository
 	genRegistry  *registry.GeneratorRegistry
 	validator    *validation.Validator
 	logger       *logging.Logger
@@ -35,7 +34,7 @@ type RunService struct {
 func NewRunService(
 	scenarioRepo *scenarios.FileRepository,
 	targetRepo targets.Repository,
-	runRepo *runs.SQLiteRepository,
+	runRepo runs.Repository,
 	genRegistry *registry.GeneratorRegistry,
 	logger *logging.Logger,
 	batchSize int,
@@ -379,8 +378,6 @@ func (s *RunService) executeRun(run *domain.Run, scenario *domain.Scenario, targ
 	// Build concrete exec.Target
 	var tgt exec.Target
 	switch targetCfg.Kind {
-	case "sqlite":
-		tgt = sqliteTarget.NewSQLiteTarget(targetCfg.DSN)
 	case "postgres":
 		schema := targetCfg.Schema
 		if schema == "" {

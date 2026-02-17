@@ -33,6 +33,5 @@ go.work.sum
 
 # Local runtime artifacts
 *.db
-*.sqlite
 bin/
 main

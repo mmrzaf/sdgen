@@ -7,12 +7,10 @@ import (
 
 	"github.com/google/uuid"
 	_ "github.com/lib/pq"
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/mmrzaf/sdgen/internal/domain"
 	"github.com/mmrzaf/sdgen/internal/exec"
 	esTarget "github.com/mmrzaf/sdgen/internal/infra/targets/elasticsearch"
 	pgTarget "github.com/mmrzaf/sdgen/internal/infra/targets/postgres"
-	sqliteTarget "github.com/mmrzaf/sdgen/internal/infra/targets/sqlite"
 	"github.com/mmrzaf/sdgen/internal/validation"
 )
 
@@ -67,10 +65,6 @@ func buildCheckTarget(t *domain.TargetConfig) (exec.Target, func() (string, erro
 		}
 		return pgTarget.NewPostgresTarget(t.DSN, schema), func() (string, error) {
 			return queryServerVersion("postgres", t.DSN, "SHOW server_version")
-		}, nil
-	case "sqlite":
-		return sqliteTarget.NewSQLiteTarget(t.DSN), func() (string, error) {
-			return queryServerVersion("sqlite3", t.DSN, "SELECT sqlite_version()")
 		}, nil
 	case "elasticsearch":
 		return esTarget.NewElasticsearchTarget(t.DSN), func() (string, error) {

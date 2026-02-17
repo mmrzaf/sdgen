@@ -10,15 +10,15 @@ import (
 	"github.com/mmrzaf/sdgen/internal/domain"
 )
 
-type SQLiteRepository struct {
+type PostgresRepository struct {
 	db *sql.DB
 }
 
-func NewSQLiteRepository(db *sql.DB) *SQLiteRepository {
-	return &SQLiteRepository{db: db}
+func NewPostgresRepository(db *sql.DB) *PostgresRepository {
+	return &PostgresRepository{db: db}
 }
 
-func (r *SQLiteRepository) List() ([]*domain.TargetConfig, error) {
+func (r *PostgresRepository) List() ([]*domain.TargetConfig, error) {
 	rows, err := r.db.Query(`
 		SELECT id, name, kind, dsn, database, schema, options_json
 		FROM targets
@@ -51,7 +51,7 @@ func (r *SQLiteRepository) List() ([]*domain.TargetConfig, error) {
 	return out, rows.Err()
 }
 
-func (r *SQLiteRepository) Get(id string) (*domain.TargetConfig, error) {
+func (r *PostgresRepository) Get(id string) (*domain.TargetConfig, error) {
 	var t domain.TargetConfig
 	var database sql.NullString
 	var schema sql.NullString
@@ -59,7 +59,7 @@ func (r *SQLiteRepository) Get(id string) (*domain.TargetConfig, error) {
 	err := r.db.QueryRow(`
 		SELECT id, name, kind, dsn, database, schema, options_json
 		FROM targets
-		WHERE id = ?`, id).Scan(&t.ID, &t.Name, &t.Kind, &t.DSN, &database, &schema, &opt)
+		WHERE id = $1`, id).Scan(&t.ID, &t.Name, &t.Kind, &t.DSN, &database, &schema, &opt)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +75,7 @@ func (r *SQLiteRepository) Get(id string) (*domain.TargetConfig, error) {
 	return &t, nil
 }
 
-func (r *SQLiteRepository) Create(t *domain.TargetConfig) error {
+func (r *PostgresRepository) Create(t *domain.TargetConfig) error {
 	if t == nil {
 		return errors.New("nil target")
 	}
@@ -92,12 +92,12 @@ func (r *SQLiteRepository) Create(t *domain.TargetConfig) error {
 
 	_, err := r.db.Exec(`
 		INSERT INTO targets (id, name, kind, dsn, database, schema, options_json, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 		t.ID, t.Name, t.Kind, t.DSN, nullIfEmpty(t.Database), nullIfEmpty(t.Schema), nullIfEmpty(opt), now, now)
 	return err
 }
 
-func (r *SQLiteRepository) Update(t *domain.TargetConfig) error {
+func (r *PostgresRepository) Update(t *domain.TargetConfig) error {
 	if t == nil {
 		return errors.New("nil target")
 	}
@@ -114,8 +114,8 @@ func (r *SQLiteRepository) Update(t *domain.TargetConfig) error {
 
 	res, err := r.db.Exec(`
 		UPDATE targets
-		SET name = ?, kind = ?, dsn = ?, database = ?, schema = ?, options_json = ?, updated_at = ?
-		WHERE id = ?`,
+		SET name = $1, kind = $2, dsn = $3, database = $4, schema = $5, options_json = $6, updated_at = $7
+		WHERE id = $8`,
 		t.Name, t.Kind, t.DSN, nullIfEmpty(t.Database), nullIfEmpty(t.Schema), nullIfEmpty(opt), now, t.ID)
 	if err != nil {
 		return err
@@ -127,8 +127,8 @@ func (r *SQLiteRepository) Update(t *domain.TargetConfig) error {
 	return nil
 }
 
-func (r *SQLiteRepository) Delete(id string) error {
-	res, err := r.db.Exec(`DELETE FROM targets WHERE id = ?`, id)
+func (r *PostgresRepository) Delete(id string) error {
+	res, err := r.db.Exec(`DELETE FROM targets WHERE id = $1`, id)
 	if err != nil {
 		return err
 	}
@@ -139,7 +139,7 @@ func (r *SQLiteRepository) Delete(id string) error {
 	return nil
 }
 
-func (r *SQLiteRepository) RecordCheck(c *domain.TargetCheck) error {
+func (r *PostgresRepository) RecordCheck(c *domain.TargetCheck) error {
 	if c == nil {
 		return errors.New("nil check")
 	}
@@ -147,21 +147,21 @@ func (r *SQLiteRepository) RecordCheck(c *domain.TargetCheck) error {
 
 	_, err := r.db.Exec(`
 		INSERT INTO target_checks (id, target_id, checked_at, ok, latency_ms, server_version, capabilities_json, error)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		c.ID, c.TargetID, c.CheckedAt, boolToInt(c.OK), c.LatencyMS, nullIfEmpty(c.ServerVer), nullIfEmpty(string(b)), nullIfEmpty(c.Error))
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		c.ID, c.TargetID, c.CheckedAt, c.OK, c.LatencyMS, nullIfEmpty(c.ServerVer), nullIfEmpty(string(b)), nullIfEmpty(c.Error))
 	return err
 }
 
-func (r *SQLiteRepository) ListChecks(targetID string, limit int) ([]*domain.TargetCheck, error) {
+func (r *PostgresRepository) ListChecks(targetID string, limit int) ([]*domain.TargetCheck, error) {
 	if limit <= 0 {
 		limit = 20
 	}
 	rows, err := r.db.Query(`
 		SELECT id, target_id, checked_at, ok, latency_ms, server_version, capabilities_json, error
 		FROM target_checks
-		WHERE target_id = ?
+		WHERE target_id = $1
 		ORDER BY checked_at DESC
-		LIMIT ?`, targetID, limit)
+		LIMIT $2`, targetID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -170,14 +170,14 @@ func (r *SQLiteRepository) ListChecks(targetID string, limit int) ([]*domain.Tar
 	var out []*domain.TargetCheck
 	for rows.Next() {
 		var c domain.TargetCheck
-		var okInt int
+		var ok bool
 		var server sql.NullString
 		var caps sql.NullString
 		var errStr sql.NullString
-		if err := rows.Scan(&c.ID, &c.TargetID, &c.CheckedAt, &okInt, &c.LatencyMS, &server, &caps, &errStr); err != nil {
+		if err := rows.Scan(&c.ID, &c.TargetID, &c.CheckedAt, &ok, &c.LatencyMS, &server, &caps, &errStr); err != nil {
 			return nil, err
 		}
-		c.OK = okInt == 1
+		c.OK = ok
 		if server.Valid {
 			c.ServerVer = server.String
 		}
@@ -190,18 +190,4 @@ func (r *SQLiteRepository) ListChecks(targetID string, limit int) ([]*domain.Tar
 		out = append(out, &c)
 	}
 	return out, rows.Err()
-}
-
-func nullIfEmpty(s string) interface{} {
-	if s == "" {
-		return nil
-	}
-	return s
-}
-
-func boolToInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
 }

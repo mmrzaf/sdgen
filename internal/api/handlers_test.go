@@ -18,7 +18,16 @@ import (
 	"github.com/mmrzaf/sdgen/internal/registry"
 )
 
-func newTestHandler(t *testing.T) (*Handler, *runs.SQLiteRepository) {
+func testPostgresDSN(t *testing.T) string {
+	t.Helper()
+	dsn := os.Getenv("SDGEN_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set SDGEN_TEST_POSTGRES_DSN to run api repository-backed tests")
+	}
+	return dsn
+}
+
+func newTestHandler(t *testing.T) (*Handler, *runs.PostgresRepository) {
 	t.Helper()
 
 	scenariosDir := t.TempDir()
@@ -43,19 +52,15 @@ entities:
 		t.Fatal(err)
 	}
 
-	dbf, err := os.CreateTemp("", "sdgen_api_*.db")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = dbf.Close()
-	t.Cleanup(func() { _ = os.Remove(dbf.Name()) })
-
-	runRepo := runs.NewSQLiteRepository(dbf.Name())
+	runRepo := runs.NewPostgresRepository(testPostgresDSN(t))
 	if err := runRepo.Init(); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := runRepo.DB().Exec(`TRUNCATE TABLE run_logs, target_checks, targets, runs`); err != nil {
+		t.Fatal(err)
+	}
 	scRepo := scenarios.NewFileRepository(scenariosDir)
-	targetRepo := targets.NewSQLiteRepository(runRepo.DB())
+	targetRepo := targets.NewPostgresRepository(runRepo.DB())
 	runSvc := app.NewRunService(scRepo, targetRepo, runRepo, registry.DefaultGeneratorRegistry(), logging.NewLogger("error"), 1000)
 	return NewHandler(scRepo, targetRepo, runSvc), runRepo
 }
@@ -69,7 +74,7 @@ func TestGetRun_ReturnsProgressFields(t *testing.T) {
 		ScenarioVersion:       "1",
 		TargetID:              "t1",
 		TargetName:            "target1",
-		TargetKind:            "sqlite",
+		TargetKind:            "postgres",
 		Seed:                  1,
 		ConfigHash:            "abc",
 		Status:                domain.RunStatusRunning,
@@ -114,7 +119,7 @@ func TestGetRunLogs_ReturnsMostRecentLogs(t *testing.T) {
 		ScenarioVersion: "1",
 		TargetID:        "t1",
 		TargetName:      "target1",
-		TargetKind:      "sqlite",
+		TargetKind:      "postgres",
 		Seed:            1,
 		ConfigHash:      "abc",
 		Status:          domain.RunStatusRunning,

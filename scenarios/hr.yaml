@@ -1,39 +1,46 @@
 id: hr
-name: HR Workforce Intelligence
-version: 1.0.0
+name: HR Workforce Intelligence v2
+version: 2.0.0
+description: Workforce analytics scenario with organization graph, compensation snapshots, reviews, and learning events.
 seed: 20260217
 entities:
-  - name: offices
-    target_table: offices
-    rows: 120
+  - name: hr_locations
+    target_table: hr_locations
+    rows: 240
     columns:
-      - name: office_id
+      - name: location_id
         type: int
         generator:
           type: uniform_int
           params:
-            min: 1
-            max: 1000000
+            min: 1000
+            max: 9999999
       - name: city
         type: string
         generator:
           type: faker_city
+      - name: country_code
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [US, CA, GB, DE, FR, IN, SG, AE, BR, AU]
       - name: region
         type: string
         generator:
           type: choice
           params:
             values: [na, emea, apac, latam]
-      - name: timezone
+      - name: site_type
         type: string
         generator:
           type: choice
           params:
-            values: [utc_minus_8, utc_minus_5, utc_plus_0, utc_plus_1, utc_plus_5]
+            values: [hq, office, delivery_center, plant, remote_hub]
 
-  - name: departments
-    target_table: departments
-    rows: 60
+  - name: hr_departments
+    target_table: hr_departments
+    rows: 140
     columns:
       - name: department_id
         type: int
@@ -42,29 +49,29 @@ entities:
           params:
             min: 1
             max: 999999
-      - name: office_id
+      - name: location_id
         type: int
         generator:
           type: fk
           params:
-            entity: offices
-            column: office_id
+            entity: hr_locations
+            column: location_id
       - name: department_name
         type: string
         generator:
           type: choice
           params:
-            values: [engineering, sales, marketing, hr, legal, finance, support, security, operations]
+            values: [engineering, product, design, sales, marketing, finance, people_ops, legal, support, security, operations]
       - name: cost_center
         type: string
         generator:
           type: choice
           params:
-            values: [cc100, cc200, cc300, cc400, cc500]
+            values: [cc100, cc200, cc300, cc400, cc500, cc600]
 
-  - name: employees
-    target_table: employees
-    rows: 220000
+  - name: hr_employees
+    target_table: hr_employees
+    rows: 280000
     columns:
       - name: employee_id
         type: uuid
@@ -75,40 +82,53 @@ entities:
         generator:
           type: fk
           params:
-            entity: departments
+            entity: hr_departments
             column: department_id
       - name: full_name
         type: string
         generator:
           type: faker_name
-      - name: title
+      - name: job_family
         type: string
         generator:
           type: choice
           params:
-            values: [engineer, manager, director, analyst, coordinator, specialist]
-            weights: [0.48, 0.2, 0.05, 0.16, 0.06, 0.05]
+            values: [software, data, infra, sales, hr, finance, legal, support, security]
+      - name: level_band
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [ic1, ic2, ic3, ic4, m1, m2, d1]
+            weights: [0.17, 0.26, 0.23, 0.13, 0.11, 0.07, 0.03]
       - name: employment_type
         type: string
         generator:
           type: choice
           params:
             values: [full_time, contractor, intern]
-            weights: [0.82, 0.14, 0.04]
-      - name: hired_at
-        type: timestamp
+            weights: [0.83, 0.13, 0.04]
+      - name: employment_status
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [active, leave, exited]
+            weights: [0.88, 0.05, 0.07]
+      - name: hire_date
+        type: date
         generator:
           type: time_series
           params:
-            start: "-2000d"
-            step: "20m"
+            start: "-2500d"
+            step: "6m"
             jitter_seconds: 86400
 
-  - name: employee_payroll
-    target_table: employee_payroll
-    rows: 220000
+  - name: hr_compensation_snapshots
+    target_table: hr_compensation_snapshots
+    rows: 1200000
     columns:
-      - name: payroll_id
+      - name: compensation_snapshot_id
         type: uuid
         generator:
           type: uuid4
@@ -117,33 +137,39 @@ entities:
         generator:
           type: fk
           params:
-            entity: employees
+            entity: hr_employees
             column: employee_id
-      - name: annual_salary
+      - name: salary_base_usd
         type: int
         generator:
           type: uniform_int
           params:
-            min: 35000
-            max: 320000
-      - name: bonus_percent
+            min: 38000
+            max: 420000
+      - name: bonus_target_pct
         type: float
         generator:
           type: uniform_float
           params:
             min: 0
-            max: 30
-      - name: review_band
+            max: 45
+      - name: stock_grant_usd
+        type: int
+        generator:
+          type: uniform_int
+          params:
+            min: 0
+            max: 350000
+      - name: snapshot_period
         type: string
         generator:
           type: choice
           params:
-            values: [needs_support, solid, strong, exceptional]
-            weights: [0.08, 0.55, 0.29, 0.08]
+            values: [2024_q1, 2024_q2, 2024_q3, 2024_q4, 2025_q1, 2025_q2, 2025_q3, 2025_q4]
 
-  - name: employee_reviews
-    target_table: employee_reviews
-    rows: 900000
+  - name: hr_performance_reviews
+    target_table: hr_performance_reviews
+    rows: 980000
     columns:
       - name: review_id
         type: uuid
@@ -154,33 +180,88 @@ entities:
         generator:
           type: fk
           params:
-            entity: employees
+            entity: hr_employees
             column: employee_id
-      - name: score
+      - name: reviewer_employee_id
+        type: uuid
+        generator:
+          type: fk
+          params:
+            entity: hr_employees
+            column: employee_id
+      - name: overall_score
         type: float
         generator:
           type: normal
           params:
-            mean: 3.4
-            std: 0.9
-      - name: sentiment_label
+            mean: 3.5
+            std: 0.8
+      - name: potential_rating
         type: string
         generator:
           type: choice
           params:
-            values: [positive, neutral, negative]
-            weights: [0.54, 0.31, 0.15]
-      - name: review_text_theme
-        type: string
+            values: [emerging, solid, strong, exceptional]
+            weights: [0.14, 0.46, 0.3, 0.1]
+      - name: nlp_feedback
+        type: text
         generator:
           type: choice
           params:
-            values: [delivery_quality, collaboration, leadership, communication, growth_plan, innovation]
+            values:
+              - consistently delivers high quality work and mentors peers effectively
+              - strong execution but needs improvement in cross team communication
+              - demonstrates ownership under pressure and drives incident resolution
+              - requires clearer prioritization and better backlog management habits
       - name: reviewed_at
         type: timestamp
         generator:
           type: time_series
           params:
             start: "-730d"
-            step: "45s"
-            jitter_seconds: 1800
+            step: "1200ms"
+            jitter_seconds: 7200
+
+  - name: hr_learning_events
+    target_table: hr_learning_events
+    rows: 3200000
+    columns:
+      - name: learning_event_id
+        type: uuid
+        generator:
+          type: uuid4
+      - name: employee_id
+        type: uuid
+        generator:
+          type: fk
+          params:
+            entity: hr_employees
+            column: employee_id
+      - name: course_track
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [leadership, cloud, secure_coding, product_management, compliance, sales_enablement, communication]
+      - name: completion_status
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [assigned, in_progress, completed, overdue]
+            weights: [0.15, 0.22, 0.56, 0.07]
+      - name: score
+        type: float
+        generator:
+          type: normal
+          params:
+            mean: 81
+            std: 11
+      - name: event_at
+        type: timestamp
+        generator:
+          type: time_series
+          params:
+            start: "-730d"
+            step: "350ms"
+            jitter_seconds: 600
