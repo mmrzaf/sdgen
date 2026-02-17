@@ -1,11 +1,12 @@
 id: iot
-name: IoT Telemetry and Fleet Operations
-version: 1.0.0
+name: IoT Telemetry and Device Reliability v2
+version: 2.0.0
+description: Device fleet telemetry with site hierarchy, alerts, and maintenance actions for time-series analytics.
 seed: 20260217
 entities:
-  - name: customers
+  - name: iot_customers
     target_table: iot_customers
-    rows: 20000
+    rows: 32000
     columns:
       - name: customer_id
         type: uuid
@@ -15,21 +16,27 @@ entities:
         type: string
         generator:
           type: faker_name
-      - name: customer_city
+      - name: headquarter_city
         type: string
         generator:
           type: faker_city
-      - name: tier
+      - name: industry
         type: string
         generator:
           type: choice
           params:
-            values: [starter, growth, enterprise]
-            weights: [0.55, 0.32, 0.13]
+            values: [manufacturing, logistics, retail, healthcare, energy, smart_buildings]
+      - name: plan_tier
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [starter, growth, enterprise, enterprise_plus]
+            weights: [0.41, 0.33, 0.2, 0.06]
 
-  - name: sites
+  - name: iot_sites
     target_table: iot_sites
-    rows: 160000
+    rows: 210000
     columns:
       - name: site_id
         type: uuid
@@ -40,7 +47,7 @@ entities:
         generator:
           type: fk
           params:
-            entity: customers
+            entity: iot_customers
             column: customer_id
       - name: site_city
         type: string
@@ -51,11 +58,17 @@ entities:
         generator:
           type: choice
           params:
-            values: [office, factory, warehouse, retail, hospital]
+            values: [factory, warehouse, office, retail_store, hospital, campus]
+      - name: network_profile
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [wired, lte, wifi, lpwan, hybrid]
 
-  - name: devices
-    target_table: devices
-    rows: 1800000
+  - name: iot_devices
+    target_table: iot_devices
+    rows: 2600000
     columns:
       - name: device_id
         type: uuid
@@ -66,33 +79,40 @@ entities:
         generator:
           type: fk
           params:
-            entity: sites
+            entity: iot_sites
             column: site_id
       - name: model
         type: string
         generator:
           type: choice
           params:
-            values: [sensor_v1, sensor_v2, gateway_v2, camera_lite, camera_pro]
+            values: [sensor_temp_v3, sensor_vibration_v2, gateway_edge_x1, camera_ai_pro, meter_power_m8]
       - name: firmware_channel
         type: string
         generator:
           type: choice
           params:
             values: [stable, canary, beta]
-            weights: [0.8, 0.12, 0.08]
+            weights: [0.82, 0.12, 0.06]
+      - name: deployment_status
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [active, maintenance, retired]
+            weights: [0.9, 0.07, 0.03]
       - name: installed_at
         type: timestamp
         generator:
           type: time_series
           params:
-            start: "-900d"
-            step: "20s"
-            jitter_seconds: 86400
+            start: "-1200d"
+            step: "12s"
+            jitter_seconds: 43200
 
-  - name: telemetry
-    target_table: telemetry
-    rows: 72000000
+  - name: iot_telemetry
+    target_table: iot_telemetry
+    rows: 98000000
     columns:
       - name: telemetry_id
         type: uuid
@@ -103,40 +123,40 @@ entities:
         generator:
           type: fk
           params:
-            entity: devices
+            entity: iot_devices
             column: device_id
       - name: metric_name
         type: string
         generator:
           type: choice
           params:
-            values: [temperature_c, humidity_pct, battery_pct, cpu_pct, pressure_kpa, signal_dbm]
+            values: [temperature_c, humidity_pct, vibration_rms, battery_pct, voltage_v, current_a, signal_dbm, packet_loss_pct]
       - name: metric_value
         type: float
         generator:
           type: normal
           params:
-            mean: 55
-            std: 18
-      - name: quality
+            mean: 52
+            std: 19
+      - name: quality_flag
         type: string
         generator:
           type: choice
           params:
-            values: [good, suspect, missing]
-            weights: [0.93, 0.06, 0.01]
+            values: [good, noisy, stale, missing]
+            weights: [0.9, 0.06, 0.03, 0.01]
       - name: observed_at
         type: timestamp
         generator:
           type: time_series
           params:
             start: "-180d"
-            step: "15ms"
+            step: "12ms"
             jitter_seconds: 8
 
-  - name: alerts
-    target_table: alerts
-    rows: 2200000
+  - name: iot_alerts
+    target_table: iot_alerts
+    rows: 3400000
     columns:
       - name: alert_id
         type: uuid
@@ -147,33 +167,87 @@ entities:
         generator:
           type: fk
           params:
-            entity: devices
+            entity: iot_devices
             column: device_id
       - name: alert_type
         type: string
         generator:
           type: choice
           params:
-            values: [battery_low, threshold_breach, offline, packet_loss, tamper, firmware_drift]
+            values: [battery_low, offline, temperature_spike, packet_loss, tamper, firmware_drift, calibration_needed]
       - name: severity
         type: string
         generator:
           type: choice
           params:
-            values: [info, warning, critical]
-            weights: [0.3, 0.55, 0.15]
+            values: [info, warning, major, critical]
+            weights: [0.19, 0.49, 0.24, 0.08]
       - name: acknowledged
         type: bool
         generator:
           type: choice
           params:
             values: [true, false]
-            weights: [0.7, 0.3]
+            weights: [0.72, 0.28]
+      - name: nlp_alert_context
+        type: text
+        generator:
+          type: choice
+          params:
+            values:
+              - sustained packet loss observed after firmware canary rollout
+              - repeated thermal spikes detected near production line motor bank
+              - offline condition correlated with unstable site power supply
+              - calibration drift exceeded threshold during night shift operations
       - name: opened_at
         type: timestamp
         generator:
           type: time_series
           params:
             start: "-180d"
-            step: "600ms"
-            jitter_seconds: 45
+            step: "450ms"
+            jitter_seconds: 60
+
+  - name: iot_work_orders
+    target_table: iot_work_orders
+    rows: 1400000
+    columns:
+      - name: work_order_id
+        type: uuid
+        generator:
+          type: uuid4
+      - name: alert_id
+        type: uuid
+        generator:
+          type: fk
+          params:
+            entity: iot_alerts
+            column: alert_id
+      - name: assignee_team
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [field_ops, reliability, network_ops, vendor_support]
+      - name: resolution_status
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [open, dispatched, in_progress, resolved, cancelled]
+            weights: [0.2, 0.22, 0.23, 0.31, 0.04]
+      - name: resolution_minutes
+        type: int
+        generator:
+          type: uniform_int
+          params:
+            min: 5
+            max: 10080
+      - name: closed_at
+        type: timestamp
+        generator:
+          type: time_series
+          params:
+            start: "-180d"
+            step: "700ms"
+            jitter_seconds: 300

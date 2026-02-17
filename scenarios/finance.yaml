@@ -1,11 +1,12 @@
 id: finance
-name: Finance Risk and Payments
-version: 1.0.0
+name: Finance Risk, AML, and Payments Analytics
+version: 2.0.0
+description: High-volume finance dataset for BI, risk analytics, joins, and NLP over payment and case narratives.
 seed: 20260217
 entities:
-  - name: customers
-    target_table: customers
-    rows: 150000
+  - name: finance_customers
+    target_table: finance_customers
+    rows: 220000
     columns:
       - name: customer_id
         type: uuid
@@ -15,7 +16,7 @@ entities:
         type: string
         generator:
           type: faker_name
-      - name: city
+      - name: home_city
         type: string
         generator:
           type: faker_city
@@ -24,19 +25,34 @@ entities:
         generator:
           type: choice
           params:
-            values: [retail, smb, enterprise, vip]
-            weights: [0.65, 0.2, 0.1, 0.05]
-      - name: kyc_score
-        type: int
+            values: [retail, affluent, smb, enterprise, private_banking]
+            weights: [0.52, 0.18, 0.2, 0.08, 0.02]
+      - name: risk_band
+        type: string
         generator:
-          type: uniform_int
+          type: choice
           params:
-            min: 1
-            max: 101
+            values: [low, medium, high, watch]
+            weights: [0.58, 0.28, 0.1, 0.04]
+      - name: onboarding_channel
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [branch, mobile_app, web, partner]
+            weights: [0.2, 0.43, 0.29, 0.08]
+      - name: created_at
+        type: timestamp
+        generator:
+          type: time_series
+          params:
+            start: "-2000d"
+            step: "12m"
+            jitter_seconds: 86400
 
-  - name: accounts
-    target_table: accounts
-    rows: 240000
+  - name: finance_accounts
+    target_table: finance_accounts
+    rows: 340000
     columns:
       - name: account_id
         type: uuid
@@ -47,47 +63,56 @@ entities:
         generator:
           type: fk
           params:
-            entity: customers
+            entity: finance_customers
             column: customer_id
       - name: account_type
         type: string
         generator:
           type: choice
           params:
-            values: [checking, savings, credit, loan]
-            weights: [0.45, 0.25, 0.2, 0.1]
-      - name: risk_tier
+            values: [checking, savings, credit_card, mortgage, business_operating]
+            weights: [0.38, 0.25, 0.24, 0.07, 0.06]
+      - name: product_tier
         type: string
         generator:
           type: choice
           params:
-            values: [low, medium, high]
-            weights: [0.6, 0.3, 0.1]
+            values: [standard, gold, platinum, black]
+            weights: [0.53, 0.27, 0.16, 0.04]
+      - name: account_status
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [active, dormant, restricted, closed]
+            weights: [0.88, 0.06, 0.03, 0.03]
       - name: opened_at
         type: timestamp
         generator:
           type: time_series
           params:
-            start: "-365d"
-            step: "1m"
-            jitter_seconds: 86400
+            start: "-1600d"
+            step: "9m"
+            jitter_seconds: 43200
 
-  - name: merchants
-    target_table: merchants
-    rows: 25000
+  - name: finance_counterparties
+    target_table: finance_counterparties
+    rows: 90000
     columns:
-      - name: merchant_id
+      - name: counterparty_id
         type: uuid
         generator:
           type: uuid4
-      - name: merchant_name
+      - name: legal_name
         type: string
         generator:
-          type: faker_device_name
-      - name: merchant_city
+          type: faker_name
+      - name: country_code
         type: string
         generator:
-          type: faker_city
+          type: choice
+          params:
+            values: [US, CA, GB, DE, FR, NL, AE, SG, IN, JP]
       - name: mcc
         type: int
         generator:
@@ -95,12 +120,19 @@ entities:
           params:
             min: 1000
             max: 9999
+      - name: channel
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [card_present, ecommerce, ach, wire, swift]
+            weights: [0.2, 0.33, 0.23, 0.16, 0.08]
 
-  - name: payments
-    target_table: payments
-    rows: 3200000
+  - name: finance_transactions
+    target_table: finance_transactions
+    rows: 6800000
     columns:
-      - name: payment_id
+      - name: transaction_id
         type: uuid
         generator:
           type: uuid4
@@ -109,85 +141,181 @@ entities:
         generator:
           type: fk
           params:
-            entity: accounts
+            entity: finance_accounts
             column: account_id
-      - name: merchant_id
+      - name: counterparty_id
         type: uuid
         generator:
           type: fk
           params:
-            entity: merchants
-            column: merchant_id
+            entity: finance_counterparties
+            column: counterparty_id
+      - name: transaction_type
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [purchase, transfer, withdrawal, refund, fee, chargeback]
+            weights: [0.47, 0.24, 0.1, 0.09, 0.06, 0.04]
+      - name: payment_rail
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [visa, mastercard, ach, sepa, swift, rtp]
+            weights: [0.3, 0.24, 0.2, 0.11, 0.08, 0.07]
       - name: amount
         type: double
         generator:
           type: uniform_float
           params:
-            min: 1.25
-            max: 25000.0
+            min: 1.0
+            max: 45000.0
       - name: currency
         type: string
         generator:
           type: choice
           params:
-            values: [USD, EUR, GBP, CAD, JPY]
-            weights: [0.65, 0.12, 0.08, 0.08, 0.07]
+            values: [USD, EUR, GBP, CAD, JPY, AED]
+            weights: [0.61, 0.13, 0.09, 0.07, 0.06, 0.04]
       - name: status
         type: string
         generator:
           type: choice
           params:
-            values: [approved, declined, review]
-            weights: [0.94, 0.04, 0.02]
-      - name: created_at
+            values: [approved, declined, review, reversed]
+            weights: [0.91, 0.05, 0.03, 0.01]
+      - name: nlp_description
+        type: text
+        generator:
+          type: choice
+          params:
+            values:
+              - recurring subscription payment processed on mobile channel
+              - card present retail purchase with chip and pin verification
+              - cross border ecommerce transaction flagged for address mismatch
+              - internal transfer between linked accounts for cash management
+              - high value wire instruction initiated from enterprise treasury
+      - name: booked_at
         type: timestamp
         generator:
           type: time_series
           params:
-            start: "-120d"
-            step: "150ms"
-            jitter_seconds: 30
+            start: "-365d"
+            step: "120ms"
+            jitter_seconds: 45
 
-  - name: fraud_alerts
-    target_table: fraud_alerts
-    rows: 180000
+  - name: finance_disputes
+    target_table: finance_disputes
+    rows: 260000
     columns:
-      - name: alert_id
+      - name: dispute_id
         type: uuid
         generator:
           type: uuid4
-      - name: payment_id
+      - name: transaction_id
         type: uuid
         generator:
           type: fk
           params:
-            entity: payments
-            column: payment_id
+            entity: finance_transactions
+            column: transaction_id
+      - name: dispute_reason
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [fraud_claim, duplicate_charge, service_not_received, amount_mismatch, unauthorized_subscription]
+      - name: dispute_status
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [open, investigating, merchant_response, resolved_customer, resolved_merchant]
+            weights: [0.22, 0.28, 0.24, 0.18, 0.08]
+      - name: priority
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [p3, p2, p1]
+            weights: [0.62, 0.29, 0.09]
+      - name: nlp_case_note
+        type: text
+        generator:
+          type: choice
+          params:
+            values:
+              - customer reports unknown merchant and card was in possession
+              - merchant supplied fulfillment evidence and delivery confirmation
+              - transaction amount differs from signed receipt and tip entry
+              - recurring billing allegedly cancelled but charge persisted
+      - name: opened_at
+        type: timestamp
+        generator:
+          type: time_series
+          params:
+            start: "-365d"
+            step: "2s"
+            jitter_seconds: 120
+
+  - name: finance_aml_cases
+    target_table: finance_aml_cases
+    rows: 140000
+    columns:
+      - name: case_id
+        type: uuid
+        generator:
+          type: uuid4
+      - name: customer_id
+        type: uuid
+        generator:
+          type: fk
+          params:
+            entity: finance_customers
+            column: customer_id
+      - name: trigger_transaction_id
+        type: uuid
+        generator:
+          type: fk
+          params:
+            entity: finance_transactions
+            column: transaction_id
+      - name: case_type
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [structuring, sanctions_screening, mule_network, rapid_movement, unusual_counterparty]
       - name: severity
         type: string
         generator:
           type: choice
           params:
             values: [low, medium, high, critical]
-            weights: [0.42, 0.34, 0.18, 0.06]
-      - name: reason_code
+            weights: [0.39, 0.37, 0.19, 0.05]
+      - name: case_status
         type: string
         generator:
           type: choice
           params:
-            values: [velocity_spike, geolocation_mismatch, amount_anomaly, device_fingerprint, chargeback_history]
-      - name: score
-        type: float
+            values: [new, triage, escalated, closed]
+            weights: [0.21, 0.43, 0.14, 0.22]
+      - name: nlp_investigator_summary
+        type: text
         generator:
-          type: normal
+          type: choice
           params:
-            mean: 62
-            std: 17
+            values:
+              - pattern suggests layered movement across newly opened accounts
+              - activity aligns with expected payroll and vendor disbursement flows
+              - sanctions alias match requires enhanced due diligence review
+              - transaction burst indicates potential mule funnel behavior
       - name: opened_at
         type: timestamp
         generator:
           type: time_series
           params:
-            start: "-120d"
-            step: "2s"
-            jitter_seconds: 90
+            start: "-365d"
+            step: "3s"
+            jitter_seconds: 180

@@ -1,11 +1,12 @@
 id: logistic
-name: Logistics Fulfillment and Tracking
-version: 1.0.0
+name: Logistics Fulfillment and Network Tracking v2
+version: 2.0.0
+description: Supply chain graph with route network, shipments, package events, and operational notes.
 seed: 20260217
 entities:
-  - name: hubs
-    target_table: hubs
-    rows: 450
+  - name: logistic_hubs
+    target_table: logistic_hubs
+    rows: 620
     columns:
       - name: hub_id
         type: int
@@ -18,22 +19,22 @@ entities:
         type: string
         generator:
           type: faker_city
-      - name: hub_type
-        type: string
-        generator:
-          type: choice
-          params:
-            values: [port, airport, rail, warehouse, crossdock]
       - name: country_code
         type: string
         generator:
           type: choice
           params:
-            values: [us, ca, de, fr, gb, jp, in, br]
+            values: [US, CA, MX, BR, GB, DE, FR, NL, IN, SG, JP, AU]
+      - name: hub_role
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [origin, transit, gateway, final_mile, returns]
 
-  - name: carriers
-    target_table: carriers
-    rows: 1200
+  - name: logistic_carriers
+    target_table: logistic_carriers
+    rows: 2200
     columns:
       - name: carrier_id
         type: uuid
@@ -43,25 +44,32 @@ entities:
         type: string
         generator:
           type: faker_device_name
-      - name: mode
+      - name: transport_mode
         type: string
         generator:
           type: choice
           params:
             values: [air, sea, road, rail]
+      - name: service_tier
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [economy, standard, priority, critical]
+            weights: [0.28, 0.42, 0.23, 0.07]
       - name: reliability_score
         type: float
         generator:
           type: normal
           params:
-            mean: 91
-            std: 6
+            mean: 92
+            std: 5
 
-  - name: shipments
-    target_table: shipments
-    rows: 1800000
+  - name: logistic_routes
+    target_table: logistic_routes
+    rows: 18000
     columns:
-      - name: shipment_id
+      - name: route_id
         type: uuid
         generator:
           type: uuid4
@@ -70,48 +78,98 @@ entities:
         generator:
           type: fk
           params:
-            entity: hubs
+            entity: logistic_hubs
             column: hub_id
       - name: destination_hub_id
         type: int
         generator:
           type: fk
           params:
-            entity: hubs
+            entity: logistic_hubs
             column: hub_id
+      - name: default_carrier_id
+        type: uuid
+        generator:
+          type: fk
+          params:
+            entity: logistic_carriers
+            column: carrier_id
+      - name: avg_eta_hours
+        type: float
+        generator:
+          type: uniform_float
+          params:
+            min: 2
+            max: 360
+      - name: customs_risk_band
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [low, medium, high]
+            weights: [0.64, 0.28, 0.08]
+
+  - name: logistic_shipments
+    target_table: logistic_shipments
+    rows: 2600000
+    columns:
+      - name: shipment_id
+        type: uuid
+        generator:
+          type: uuid4
+      - name: route_id
+        type: uuid
+        generator:
+          type: fk
+          params:
+            entity: logistic_routes
+            column: route_id
       - name: carrier_id
         type: uuid
         generator:
           type: fk
           params:
-            entity: carriers
+            entity: logistic_carriers
             column: carrier_id
-      - name: priority
+      - name: service_level
         type: string
         generator:
           type: choice
           params:
-            values: [economy, standard, express, critical]
-            weights: [0.45, 0.35, 0.16, 0.04]
-      - name: weight_kg
+            values: [economy, standard, express, same_day]
+            weights: [0.33, 0.39, 0.22, 0.06]
+      - name: incoterm
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [exw, fob, cif, dap, ddp]
+      - name: total_weight_kg
         type: float
         generator:
           type: uniform_float
           params:
-            min: 0.2
-            max: 1500
+            min: 0.3
+            max: 2200
+      - name: shipment_status
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [booked, in_transit, customs_hold, delivered, returned]
+            weights: [0.08, 0.57, 0.03, 0.28, 0.04]
       - name: created_at
         type: timestamp
         generator:
           type: time_series
           params:
             start: "-365d"
-            step: "750ms"
-            jitter_seconds: 120
+            step: "500ms"
+            jitter_seconds: 180
 
-  - name: packages
-    target_table: packages
-    rows: 4200000
+  - name: logistic_packages
+    target_table: logistic_packages
+    rows: 7800000
     columns:
       - name: package_id
         type: uuid
@@ -122,41 +180,48 @@ entities:
         generator:
           type: fk
           params:
-            entity: shipments
+            entity: logistic_shipments
             column: shipment_id
       - name: package_type
         type: string
         generator:
           type: choice
           params:
-            values: [box, pallet, tube, envelope, crate]
+            values: [box, pallet, envelope, crate, tube]
+      - name: length_cm
+        type: float
+        generator:
+          type: uniform_float
+          params:
+            min: 8
+            max: 240
       - name: width_cm
         type: float
         generator:
           type: uniform_float
           params:
             min: 5
-            max: 220
+            max: 180
       - name: height_cm
         type: float
         generator:
           type: uniform_float
           params:
-            min: 3
-            max: 180
-      - name: depth_cm
+            min: 2
+            max: 170
+      - name: package_weight_kg
         type: float
         generator:
           type: uniform_float
           params:
-            min: 2
-            max: 200
+            min: 0.1
+            max: 600
 
-  - name: tracking_events
-    target_table: tracking_events
-    rows: 36000000
+  - name: logistic_tracking_events
+    target_table: logistic_tracking_events
+    rows: 58000000
     columns:
-      - name: event_id
+      - name: tracking_event_id
         type: uuid
         generator:
           type: uuid4
@@ -165,27 +230,45 @@ entities:
         generator:
           type: fk
           params:
-            entity: packages
+            entity: logistic_packages
             column: package_id
-      - name: event_code
-        type: string
-        generator:
-          type: choice
-          params:
-            values: [label_created, picked_up, hub_arrival, in_transit, customs_clearance, out_for_delivery, delivered, delayed, returned]
-            weights: [0.06, 0.1, 0.18, 0.32, 0.06, 0.12, 0.11, 0.03, 0.02]
       - name: event_hub_id
         type: int
         generator:
           type: fk
           params:
-            entity: hubs
+            entity: logistic_hubs
             column: hub_id
+      - name: event_code
+        type: string
+        generator:
+          type: choice
+          params:
+            values: [label_created, pickup_confirmed, arrived_hub, departed_hub, customs_clearance, exception_delay, out_for_delivery, delivered, delivery_failed, return_initiated]
+            weights: [0.05, 0.09, 0.17, 0.16, 0.05, 0.04, 0.12, 0.25, 0.04, 0.03]
+      - name: delay_minutes
+        type: int
+        generator:
+          type: uniform_int
+          params:
+            min: 0
+            max: 720
+      - name: nlp_event_note
+        type: text
+        generator:
+          type: choice
+          params:
+            values:
+              - package rerouted because weather disruption at regional gateway
+              - customs inspection completed with no discrepancy found
+              - delivery attempt failed due to recipient unavailable at address
+              - handoff scanned to partner carrier for final mile completion
+              - shipment held pending dangerous goods documentation review
       - name: event_at
         type: timestamp
         generator:
           type: time_series
           params:
             start: "-365d"
-            step: "45ms"
-            jitter_seconds: 15
+            step: "35ms"
+            jitter_seconds: 20
