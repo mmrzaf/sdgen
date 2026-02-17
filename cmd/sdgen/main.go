@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -24,270 +26,353 @@ import (
 
 var (
 	scenariosDir string
-	targetsDir   string
 	runsDBPath   string
 	logLevel     string
+	batchSize    int
 )
 
 func main() {
 	cfg := config.Load()
 
-	rootCmd := &cobra.Command{
-		Use:   "sdgen",
-		Short: "Synthetic data generator",
-	}
+	root := &cobra.Command{Use: "sdgen"}
+	root.PersistentFlags().StringVar(&scenariosDir, "scenarios-dir", cfg.ScenariosDir, "Scenarios directory")
+	root.PersistentFlags().StringVar(&runsDBPath, "runs-db", cfg.RunsDBPath, "Runs database path")
+	root.PersistentFlags().StringVar(&logLevel, "log-level", cfg.LogLevel, "Log level")
+	root.PersistentFlags().IntVar(&batchSize, "batch-size", cfg.BatchSize, "Default insert batch size")
 
-	rootCmd.PersistentFlags().StringVar(&scenariosDir, "scenarios-dir", cfg.ScenariosDir, "Scenarios directory")
-	rootCmd.PersistentFlags().StringVar(&targetsDir, "targets-dir", cfg.TargetsDir, "Targets directory")
-	rootCmd.PersistentFlags().StringVar(&runsDBPath, "runs-db", cfg.RunsDBPath, "Runs database path")
-	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", cfg.LogLevel, "Log level")
+	root.AddCommand(scenarioCmd())
+	root.AddCommand(targetCmd())
+	root.AddCommand(runCmd())
 
-	rootCmd.AddCommand(scenarioCmd())
-	rootCmd.AddCommand(targetCmd())
-	rootCmd.AddCommand(runCmd())
-
-	if err := rootCmd.Execute(); err != nil {
+	if err := root.Execute(); err != nil {
 		os.Exit(1)
 	}
 }
 
 func scenarioCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "scenario",
-		Short: "Manage scenarios",
-	}
-
+	cmd := &cobra.Command{Use: "scenario", Short: "Manage scenarios (read-only)"}
 	var format string
 
-	listCmd := &cobra.Command{
-		Use:   "list",
-		Short: "List scenarios",
+	list := &cobra.Command{
+		Use: "list",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			repo := scenarios.NewFileRepository(scenariosDir)
 			list, err := repo.List()
 			if err != nil {
 				return err
 			}
-
 			if format == "json" {
-				data, _ := json.MarshalIndent(list, "", "  ")
-				fmt.Println(string(data))
+				b, _ := json.MarshalIndent(list, "", "  ")
+				fmt.Println(string(b))
 				return nil
 			}
-
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "ID\tNAME\tVERSION\tENTITIES")
+			fmt.Fprintln(w, "ID\tNAME\tVERSION")
 			for _, s := range list {
-				fmt.Fprintf(w, "%s\t%s\t%s\t%d\n", s.ID, s.Name, s.Version, len(s.Entities))
+				fmt.Fprintf(w, "%s\t%s\t%s\n", s.ID, s.Name, s.Version)
 			}
-			w.Flush()
-			return nil
+			return w.Flush()
 		},
 	}
-	listCmd.Flags().StringVar(&format, "format", "table", "Output format (table|json)")
+	list.Flags().StringVar(&format, "format", "table", "Output format (table|json)")
 
-	showCmd := &cobra.Command{
-		Use:   "show <id>",
-		Short: "Show scenario details",
-		Args:  cobra.ExactArgs(1),
+	show := &cobra.Command{
+		Use:  "show <id>",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			repo := scenarios.NewFileRepository(scenariosDir)
-			scenario, err := repo.Get(args[0])
+			sc, err := repo.Get(args[0])
 			if err != nil {
 				return err
 			}
-
-			data, _ := yaml.Marshal(scenario)
-			fmt.Println(string(data))
+			b, _ := yaml.Marshal(sc)
+			fmt.Println(string(b))
 			return nil
 		},
 	}
 
-	validateCmd := &cobra.Command{
-		Use:   "validate <id|path>",
-		Short: "Validate a scenario",
-		Args:  cobra.ExactArgs(1),
+	validate := &cobra.Command{
+		Use:  "validate <id|path>",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			repo := scenarios.NewFileRepository(scenariosDir)
-			var scenario *domain.Scenario
-			var err error
-
-			if strings.Contains(args[0], "/") || strings.HasSuffix(args[0], ".yaml") || strings.HasSuffix(args[0], ".yml") {
-				scenario, err = repo.GetByPath(args[0])
+			arg := args[0]
+			var (
+				sc  *domain.Scenario
+				err error
+			)
+			if st, statErr := os.Stat(arg); statErr == nil && !st.IsDir() {
+				sc, err = repo.GetByPath(arg)
 			} else {
-				scenario, err = repo.Get(args[0])
+				sc, err = repo.Get(arg)
 			}
-
 			if err != nil {
 				return err
 			}
-
-			genRegistry := registry.DefaultGeneratorRegistry()
-			validator := validation.NewValidator(genRegistry)
-
-			if err := validator.ValidateScenario(scenario); err != nil {
-				fmt.Printf("Validation failed: %v\n", err)
-				return err
-			}
-
-			fmt.Printf("Scenario '%s' is valid\n", scenario.Name)
-			return nil
+			val := validation.NewValidator(registry.DefaultGeneratorRegistry())
+			return val.ValidateScenario(sc)
 		},
 	}
 
-	cmd.AddCommand(listCmd, showCmd, validateCmd)
+	cmd.AddCommand(list, show, validate)
 	return cmd
 }
 
 func targetCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "target",
-		Short: "Manage targets",
-	}
-
+	cmd := &cobra.Command{Use: "target", Short: "Manage targets (DB-backed)"}
 	var format string
 
-	listCmd := &cobra.Command{
-		Use:   "list",
-		Short: "List targets",
+	openRepos := func() (*runs.SQLiteRepository, *targets.SQLiteRepository, error) {
+		runRepo := runs.NewSQLiteRepository(runsDBPath)
+		if err := runRepo.Init(); err != nil {
+			return nil, nil, err
+		}
+		return runRepo, targets.NewSQLiteRepository(runRepo.DB()), nil
+	}
+
+	list := &cobra.Command{
+		Use: "list",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			repo := targets.NewFileRepository(targetsDir)
+			_, repo, err := openRepos()
+			if err != nil {
+				return err
+			}
 			list, err := repo.List()
 			if err != nil {
 				return err
 			}
-
 			if format == "json" {
-				data, _ := json.MarshalIndent(list, "", "  ")
-				fmt.Println(string(data))
+				b, _ := json.MarshalIndent(targets.RedactTargets(list), "", "  ")
+				fmt.Println(string(b))
 				return nil
 			}
-
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "ID\tNAME\tKIND\tDSN")
+			fmt.Fprintln(w, "ID\tNAME\tKIND\tDATABASE\tSCHEMA\tDSN")
 			for _, t := range list {
-				dsn := t.DSN
-				if len(dsn) > 50 {
-					dsn = dsn[:47] + "..."
+				rt := targets.RedactTarget(t)
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\n", rt.ID, rt.Name, rt.Kind, rt.Database, rt.Schema, rt.DSN)
+			}
+			return w.Flush()
+		},
+	}
+	list.Flags().StringVar(&format, "format", "table", "Output format (table|json)")
+
+	show := &cobra.Command{
+		Use:  "show <id>",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_, repo, err := openRepos()
+			if err != nil {
+				return err
+			}
+			t, err := repo.Get(args[0])
+			if err != nil {
+				return err
+			}
+			b, _ := yaml.Marshal(targets.RedactTarget(t))
+			fmt.Println(string(b))
+			return nil
+		},
+	}
+
+	var (
+		id       string
+		name     string
+		kind     string
+		dsn      string
+		database string
+		schema   string
+		host     string
+		port     int
+		user     string
+		password string
+		sslmode  string
+		scheme   string
+	)
+
+	add := &cobra.Command{
+		Use: "add",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_, repo, err := openRepos()
+			if err != nil {
+				return err
+			}
+			val := validation.NewValidator(registry.DefaultGeneratorRegistry())
+			resolvedDSN := dsn
+			if strings.TrimSpace(resolvedDSN) == "" {
+				var err error
+				resolvedDSN, err = buildDSNFromParts(kind, host, port, user, password, database, sslmode, scheme)
+				if err != nil {
+					return err
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", t.ID, t.Name, t.Kind, dsn)
 			}
-			w.Flush()
+			t := &domain.TargetConfig{ID: id, Name: name, Kind: kind, DSN: resolvedDSN, Database: database, Schema: schema}
+			if err := val.ValidateTarget(t); err != nil {
+				return err
+			}
+			if err := repo.Create(t); err != nil {
+				return err
+			}
+			fmt.Println(t.ID)
 			return nil
 		},
 	}
-	listCmd.Flags().StringVar(&format, "format", "table", "Output format (table|json)")
+	add.Flags().StringVar(&id, "id", "", "Target id (optional)")
+	add.Flags().StringVar(&name, "name", "", "Target name")
+	add.Flags().StringVar(&kind, "kind", "", "Target kind (postgres|sqlite|elasticsearch)")
+	add.Flags().StringVar(&dsn, "dsn", "", "Target DSN")
+	add.Flags().StringVar(&database, "database", "", "Default database name for postgres targets")
+	add.Flags().StringVar(&schema, "schema", "", "Schema (postgres)")
+	add.Flags().StringVar(&host, "host", "", "Host used to build DSN when --dsn is omitted")
+	add.Flags().IntVar(&port, "port", 0, "Port used to build DSN when --dsn is omitted")
+	add.Flags().StringVar(&user, "user", "", "Username used to build DSN when --dsn is omitted")
+	add.Flags().StringVar(&password, "password", "", "Password used to build DSN when --dsn is omitted")
+	add.Flags().StringVar(&sslmode, "sslmode", "disable", "Postgres sslmode used to build DSN")
+	add.Flags().StringVar(&scheme, "scheme", "", "Scheme used to build DSN (http/https for elasticsearch)")
+	_ = add.MarkFlagRequired("name")
+	_ = add.MarkFlagRequired("kind")
 
-	showCmd := &cobra.Command{
-		Use:   "show <id>",
-		Short: "Show target details",
-		Args:  cobra.ExactArgs(1),
+	update := &cobra.Command{
+		Use:  "update <id>",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			repo := targets.NewFileRepository(targetsDir)
-			target, err := repo.Get(args[0])
+			_, repo, err := openRepos()
 			if err != nil {
 				return err
 			}
-
-			data, _ := yaml.Marshal(target)
-			fmt.Println(string(data))
-			return nil
+			val := validation.NewValidator(registry.DefaultGeneratorRegistry())
+			resolvedDSN := dsn
+			if strings.TrimSpace(resolvedDSN) == "" {
+				var err error
+				resolvedDSN, err = buildDSNFromParts(kind, host, port, user, password, database, sslmode, scheme)
+				if err != nil {
+					return err
+				}
+			}
+			t := &domain.TargetConfig{ID: args[0], Name: name, Kind: kind, DSN: resolvedDSN, Database: database, Schema: schema}
+			if err := val.ValidateTarget(t); err != nil {
+				return err
+			}
+			return repo.Update(t)
 		},
 	}
+	update.Flags().StringVar(&name, "name", "", "Target name")
+	update.Flags().StringVar(&kind, "kind", "", "Target kind (postgres|sqlite|elasticsearch)")
+	update.Flags().StringVar(&dsn, "dsn", "", "Target DSN")
+	update.Flags().StringVar(&database, "database", "", "Default database name for postgres targets")
+	update.Flags().StringVar(&schema, "schema", "", "Schema (postgres)")
+	update.Flags().StringVar(&host, "host", "", "Host used to build DSN when --dsn is omitted")
+	update.Flags().IntVar(&port, "port", 0, "Port used to build DSN when --dsn is omitted")
+	update.Flags().StringVar(&user, "user", "", "Username used to build DSN when --dsn is omitted")
+	update.Flags().StringVar(&password, "password", "", "Password used to build DSN when --dsn is omitted")
+	update.Flags().StringVar(&sslmode, "sslmode", "disable", "Postgres sslmode used to build DSN")
+	update.Flags().StringVar(&scheme, "scheme", "", "Scheme used to build DSN (http/https for elasticsearch)")
+	_ = update.MarkFlagRequired("name")
+	_ = update.MarkFlagRequired("kind")
 
-	validateCmd := &cobra.Command{
-		Use:   "validate <id|path>",
-		Short: "Validate a target",
-		Args:  cobra.ExactArgs(1),
+	rm := &cobra.Command{
+		Use:  "rm <id>",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			repo := targets.NewFileRepository(targetsDir)
-			var target *domain.TargetConfig
-			var err error
-
-			if strings.Contains(args[0], "/") || strings.HasSuffix(args[0], ".yaml") || strings.HasSuffix(args[0], ".yml") {
-				target, err = repo.GetByPath(args[0])
-			} else {
-				target, err = repo.Get(args[0])
-			}
-
+			_, repo, err := openRepos()
 			if err != nil {
 				return err
 			}
-
-			genRegistry := registry.DefaultGeneratorRegistry()
-			validator := validation.NewValidator(genRegistry)
-
-			if err := validator.ValidateTarget(target); err != nil {
-				fmt.Printf("Validation failed: %v\n", err)
-				return err
-			}
-
-			fmt.Printf("Target '%s' is valid\n", target.Name)
-			return nil
+			return repo.Delete(args[0])
 		},
 	}
 
-	cmd.AddCommand(listCmd, showCmd, validateCmd)
+	test := &cobra.Command{
+		Use:  "test <id>",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			logger := logging.NewLogger(logLevel)
+			runRepo := runs.NewSQLiteRepository(runsDBPath)
+			if err := runRepo.Init(); err != nil {
+				return err
+			}
+			targetRepo := targets.NewSQLiteRepository(runRepo.DB())
+			scRepo := scenarios.NewFileRepository(scenariosDir)
+			svc := app.NewRunService(scRepo, targetRepo, runRepo, registry.DefaultGeneratorRegistry(), logger, batchSize)
+
+			out, err := svc.TestTarget(args[0])
+			if out != nil {
+				b, _ := json.MarshalIndent(out, "", "  ")
+				fmt.Println(string(b))
+			}
+			return err
+		},
+	}
+
+	cmd.AddCommand(list, show, add, update, rm, test)
 	return cmd
 }
 
 func runCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "run",
-		Short: "Manage runs",
-	}
+	cmd := &cobra.Command{Use: "run"}
 
 	var (
-		scenarioID    string
-		scenarioPath  string
-		targetID      string
-		targetDSN     string
-		targetKind    string
-		seed          int64
-		rowsOverride  []string
-		mode          string
-		hasSeed       bool
+		scenario string
+
+		targetID     string
+		targetDSN    string
+		targetKind   string
+		targetDB     string
+		targetSchema string
+
+		mode    string
+		scale   float64
+		ecList  []string
+		esList  []string
+		include []string
+		exclude []string
+
+		seed     int64
+		hasSeed  bool
+		hasScale bool
+
+		doPlan bool
+		wait   bool
 	)
 
-	startCmd := &cobra.Command{
-		Use:   "start",
-		Short: "Start a run",
+	start := &cobra.Command{
+		Use: "start",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := logging.NewLogger(logLevel)
 
-			scenarioRepo := scenarios.NewFileRepository(scenariosDir)
-			targetRepo := targets.NewFileRepository(targetsDir)
+			scRepo := scenarios.NewFileRepository(scenariosDir)
 
 			runRepo := runs.NewSQLiteRepository(runsDBPath)
 			if err := runRepo.Init(); err != nil {
 				return err
 			}
+			targetRepo := targets.NewSQLiteRepository(runRepo.DB())
+			svc := app.NewRunService(scRepo, targetRepo, runRepo, registry.DefaultGeneratorRegistry(), logger, batchSize)
 
-			genRegistry := registry.DefaultGeneratorRegistry()
-			runService := app.NewRunService(scenarioRepo, targetRepo, runRepo, genRegistry, logger)
+			req := &domain.RunRequest{Mode: mode}
 
-			req := &domain.RunRequest{}
-
-			if scenarioPath != "" {
-				scenario, err := scenarioRepo.GetByPath(scenarioPath)
+			if scenario == "" {
+				return fmt.Errorf("--scenario is required")
+			}
+			if st, statErr := os.Stat(scenario); statErr == nil && !st.IsDir() {
+				sc, err := scRepo.GetByPath(scenario)
 				if err != nil {
 					return err
 				}
-				req.Scenario = scenario
-			} else if scenarioID != "" {
-				req.ScenarioID = scenarioID
+				req.Scenario = sc
 			} else {
-				return fmt.Errorf("either --scenario or --scenario-path required")
+				req.ScenarioID = scenario
 			}
 
 			if targetDSN != "" {
 				if targetKind == "" {
-					return fmt.Errorf("--target-kind required when using --target DSN")
+					return fmt.Errorf("--target-kind required with --target")
 				}
 				req.Target = &domain.TargetConfig{
-					Name: "inline-target",
-					Kind: targetKind,
-					DSN:  targetDSN,
+					Name:   "inline-target",
+					Kind:   targetKind,
+					DSN:    targetDSN,
+					Schema: targetSchema,
 				}
 			} else if targetID != "" {
 				req.TargetID = targetID
@@ -298,132 +383,219 @@ func runCmd() *cobra.Command {
 			if hasSeed {
 				req.Seed = &seed
 			}
-
-			if len(rowsOverride) > 0 {
-				req.RowOverrides = make(map[string]int64)
-				for _, override := range rowsOverride {
-					parts := strings.SplitN(override, "=", 2)
-					if len(parts) != 2 {
-						return fmt.Errorf("invalid rows override format: %s", override)
-					}
-					rows, err := strconv.ParseInt(parts[1], 10, 64)
-					if err != nil {
-						return fmt.Errorf("invalid rows value: %s", parts[1])
-					}
-					req.RowOverrides[parts[0]] = rows
-				}
+			if targetDB != "" {
+				req.TargetDatabase = targetDB
+			}
+			if hasScale {
+				req.Scale = &scale
 			}
 
-			req.Mode = mode
+			if len(ecList) > 0 {
+				req.EntityCounts = map[string]int64{}
+				for _, kv := range ecList {
+					parts := strings.SplitN(kv, "=", 2)
+					if len(parts) != 2 {
+						return fmt.Errorf("invalid --entity-count: %s", kv)
+					}
+					n, err := strconv.ParseInt(parts[1], 10, 64)
+					if err != nil {
+						return fmt.Errorf("invalid --entity-count value: %s", parts[1])
+					}
+					req.EntityCounts[parts[0]] = n
+				}
+			}
+			if len(esList) > 0 {
+				req.EntityScales = map[string]float64{}
+				for _, kv := range esList {
+					parts := strings.SplitN(kv, "=", 2)
+					if len(parts) != 2 {
+						return fmt.Errorf("invalid --entity-scale: %s", kv)
+					}
+					f, err := strconv.ParseFloat(parts[1], 64)
+					if err != nil {
+						return fmt.Errorf("invalid --entity-scale value: %s", parts[1])
+					}
+					req.EntityScales[parts[0]] = f
+				}
+			}
+			if len(include) > 0 {
+				req.IncludeEntities = append([]string(nil), include...)
+			}
+			if len(exclude) > 0 {
+				req.ExcludeEntities = append([]string(nil), exclude...)
+			}
 
-			run, err := runService.StartRun(req)
-			if err != nil {
+			if doPlan {
+				plan, err := svc.PlanRun(req)
+				if plan != nil {
+					b, _ := json.MarshalIndent(plan, "", "  ")
+					fmt.Println(string(b))
+				}
 				return err
 			}
 
-			fmt.Printf("Run started: %s\n", run.ID)
-			fmt.Println("Waiting for completion...")
-
+			run, err := svc.StartRun(req)
+			if err != nil {
+				return err
+			}
+			if !wait {
+				b, _ := json.MarshalIndent(run, "", "  ")
+				fmt.Println(string(b))
+				return nil
+			}
 			for {
-				time.Sleep(1 * time.Second)
-				updated, err := runService.GetRun(run.ID)
+				cur, err := svc.GetRun(run.ID)
 				if err != nil {
 					return err
 				}
-
-				if updated.Status == domain.RunStatusSuccess || updated.Status == domain.RunStatusFailed {
-					if updated.Status == domain.RunStatusSuccess {
-						fmt.Printf("Run completed successfully\n")
-						if updated.Stats != nil {
-							var stats domain.RunStats
-							json.Unmarshal(updated.Stats, &stats)
-							fmt.Printf("Total rows: %d\n", stats.TotalRows)
-							fmt.Printf("Duration: %.2fs\n", stats.DurationSeconds)
-						}
-					} else {
-						fmt.Printf("Run failed: %s\n", updated.Error)
-						return fmt.Errorf("run failed")
-					}
-					break
+				if cur.Status == domain.RunStatusSuccess {
+					b, _ := json.MarshalIndent(cur, "", "  ")
+					fmt.Println(string(b))
+					return nil
 				}
+				if cur.Status == domain.RunStatusFailed {
+					b, _ := json.MarshalIndent(cur, "", "  ")
+					fmt.Println(string(b))
+					if cur.Error != "" {
+						return errors.New(cur.Error)
+					}
+					return fmt.Errorf("run %s failed", cur.ID)
+				}
+				time.Sleep(200 * time.Millisecond)
 			}
-
-			return nil
 		},
 	}
 
-	startCmd.Flags().StringVar(&scenarioID, "scenario", "", "Scenario ID")
-	startCmd.Flags().StringVar(&scenarioPath, "scenario-path", "", "Scenario file path")
-	startCmd.Flags().StringVar(&targetID, "target-id", "", "Target ID")
-	startCmd.Flags().StringVar(&targetDSN, "target", "", "Target DSN")
-	startCmd.Flags().StringVar(&targetKind, "target-kind", "", "Target kind (required with --target)")
-	startCmd.Flags().Int64VarP(&seed, "seed", "s", 0, "Seed for RNG")
-	startCmd.Flags().StringSliceVar(&rowsOverride, "rows-override", nil, "Row overrides (entity=rows)")
-	startCmd.Flags().StringVar(&mode, "mode", "create_if_missing", "Table mode")
-	startCmd.Flags().Lookup("seed").NoOptDefVal = "0"
-	startCmd.PreRun = func(cmd *cobra.Command, args []string) {
+	start.Flags().StringVar(&scenario, "scenario", "", "Scenario ID or file path (inside scenarios dir)")
+
+	start.Flags().StringVar(&targetID, "target-id", "", "Target ID")
+	start.Flags().StringVar(&targetDSN, "target", "", "Inline target DSN (not stored)")
+	start.Flags().StringVar(&targetKind, "target-kind", "", "Inline target kind (postgres|sqlite|elasticsearch)")
+	start.Flags().StringVar(&targetDB, "target-db", "", "Target database override for this run (postgres)")
+	start.Flags().StringVar(&targetSchema, "target-schema", "", "Inline target schema (postgres)")
+
+	start.Flags().StringVar(&mode, "mode", "", "Mode (create|truncate|append)")
+	start.Flags().Float64Var(&scale, "scale", 1.0, "Scale factor")
+	start.Flags().StringSliceVar(&ecList, "entity-count", nil, "Override entity count entity=N (repeatable)")
+	start.Flags().StringSliceVar(&esList, "entity-scale", nil, "Per-entity scale entity=F (repeatable)")
+	start.Flags().StringSliceVar(&include, "include-entity", nil, "Include only these entities (repeatable)")
+	start.Flags().StringSliceVar(&exclude, "exclude-entity", nil, "Exclude these entities (repeatable)")
+	start.Flags().BoolVar(&doPlan, "plan", false, "Plan only (do not execute)")
+	start.Flags().BoolVar(&wait, "wait", true, "Wait for terminal run status before returning")
+
+	start.Flags().Int64Var(&seed, "seed", 0, "Seed for RNG")
+	start.Flags().Lookup("seed").NoOptDefVal = "0"
+	start.PreRun = func(cmd *cobra.Command, args []string) {
 		hasSeed = cmd.Flags().Changed("seed")
+		hasScale = cmd.Flags().Changed("scale")
 	}
+	_ = start.MarkFlagRequired("mode")
 
 	var limit int
-	var status string
-	var format string
-
-	listCmd := &cobra.Command{
-		Use:   "list",
-		Short: "List runs",
+	list := &cobra.Command{
+		Use: "list",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			logger := logging.NewLogger(logLevel)
+			scRepo := scenarios.NewFileRepository(scenariosDir)
 			runRepo := runs.NewSQLiteRepository(runsDBPath)
 			if err := runRepo.Init(); err != nil {
 				return err
 			}
-
-			list, err := runRepo.List(limit, status)
+			targetRepo := targets.NewSQLiteRepository(runRepo.DB())
+			svc := app.NewRunService(scRepo, targetRepo, runRepo, registry.DefaultGeneratorRegistry(), logger, batchSize)
+			runsList, err := svc.ListRuns(limit)
 			if err != nil {
 				return err
 			}
-
-			if format == "json" {
-				data, _ := json.MarshalIndent(list, "", "  ")
-				fmt.Println(string(data))
-				return nil
-			}
-
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "ID\tSCENARIO\tTARGET\tSTATUS\tSTARTED")
-			for _, r := range list {
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-					r.ID[:8], r.ScenarioName, r.TargetName, r.Status, r.StartedAt.Format("2006-01-02 15:04"))
+			fmt.Fprintln(w, "ID\tSTATUS\tSCENARIO\tTARGET\tSTARTED_AT")
+			for _, r := range runsList {
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", r.ID, r.Status, r.ScenarioName, r.TargetName, r.StartedAt.Format("2006-01-02T15:04:05Z07:00"))
 			}
-			w.Flush()
-			return nil
+			return w.Flush()
 		},
 	}
-	listCmd.Flags().IntVar(&limit, "limit", 20, "Limit results")
-	listCmd.Flags().StringVar(&status, "status", "", "Filter by status")
-	listCmd.Flags().StringVar(&format, "format", "table", "Output format (table|json)")
+	list.Flags().IntVar(&limit, "limit", 50, "Maximum runs to list")
 
-	showCmd := &cobra.Command{
-		Use:   "show <run_id>",
-		Short: "Show run details",
-		Args:  cobra.ExactArgs(1),
+	show := &cobra.Command{
+		Use:  "show <run_id>",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			logger := logging.NewLogger(logLevel)
+			scRepo := scenarios.NewFileRepository(scenariosDir)
 			runRepo := runs.NewSQLiteRepository(runsDBPath)
 			if err := runRepo.Init(); err != nil {
 				return err
 			}
-
-			run, err := runRepo.Get(args[0])
+			targetRepo := targets.NewSQLiteRepository(runRepo.DB())
+			svc := app.NewRunService(scRepo, targetRepo, runRepo, registry.DefaultGeneratorRegistry(), logger, batchSize)
+			run, err := svc.GetRun(args[0])
 			if err != nil {
 				return err
 			}
-
-			data, _ := yaml.Marshal(run)
-			fmt.Println(string(data))
+			b, _ := json.MarshalIndent(run, "", "  ")
+			fmt.Println(string(b))
 			return nil
 		},
 	}
 
-	cmd.AddCommand(startCmd, listCmd, showCmd)
+	cmd.AddCommand(start, list, show)
 	return cmd
+}
+
+func buildDSNFromParts(kind, host string, port int, user, password, database, sslmode, scheme string) (string, error) {
+	kind = strings.TrimSpace(kind)
+	host = strings.TrimSpace(host)
+	user = strings.TrimSpace(user)
+	password = strings.TrimSpace(password)
+	database = strings.TrimSpace(database)
+	sslmode = strings.TrimSpace(sslmode)
+	scheme = strings.TrimSpace(scheme)
+
+	switch kind {
+	case "postgres":
+		if host == "" {
+			host = "localhost"
+		}
+		if port == 0 {
+			port = 5432
+		}
+		if database == "" {
+			return "", fmt.Errorf("postgres DSN builder requires --database")
+		}
+		if user == "" {
+			return "", fmt.Errorf("postgres DSN builder requires --user")
+		}
+		if sslmode == "" {
+			sslmode = "disable"
+		}
+		return fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
+			url.QueryEscape(user), url.QueryEscape(password), host, port, url.PathEscape(database), url.QueryEscape(sslmode)), nil
+	case "elasticsearch":
+		if host == "" {
+			host = "localhost"
+		}
+		if port == 0 {
+			port = 9200
+		}
+		if scheme == "" {
+			scheme = "http"
+		}
+		auth := ""
+		if user != "" {
+			auth = url.QueryEscape(user)
+			if password != "" {
+				auth += ":" + url.QueryEscape(password)
+			}
+			auth += "@"
+		}
+		return fmt.Sprintf("%s://%s%s:%d", scheme, auth, host, port), nil
+	case "sqlite":
+		if database == "" {
+			return "", fmt.Errorf("sqlite DSN builder requires --database with sqlite file path")
+		}
+		return database, nil
+	default:
+		return "", fmt.Errorf("unsupported target kind for DSN builder: %s", kind)
+	}
 }
