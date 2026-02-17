@@ -46,9 +46,6 @@ func canonicalizeScenario(scenario *domain.Scenario) map[string]interface{} {
 			"rows":         entity.Rows,
 			"columns":      columns,
 		}
-		if entity.TableMode != "" {
-			entities[i]["table_mode"] = entity.TableMode
-		}
 	}
 
 	result := map[string]interface{}{

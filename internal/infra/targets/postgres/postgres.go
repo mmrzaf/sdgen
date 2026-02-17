@@ -57,7 +57,7 @@ func (t *PostgresTarget) CreateTableIfNotExists(entity *domain.Entity) error {
 	}
 
 	if exists {
-		return nil
+		return t.validateExistingTable(entity)
 	}
 
 	columnDefs := make([]string, len(entity.Columns))
@@ -75,6 +75,41 @@ func (t *PostgresTarget) CreateTableIfNotExists(entity *domain.Entity) error {
 
 	_, err = t.db.Exec(createSQL)
 	return err
+}
+
+func (t *PostgresTarget) validateExistingTable(entity *domain.Entity) error {
+	rows, err := t.db.Query(`
+		SELECT column_name, data_type
+		FROM information_schema.columns
+		WHERE table_schema = $1 AND table_name = $2`, t.schema, entity.TargetTable)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	existing := map[string]string{}
+	for rows.Next() {
+		var name, typ string
+		if err := rows.Scan(&name, &typ); err != nil {
+			return err
+		}
+		existing[name] = strings.ToLower(strings.TrimSpace(typ))
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, col := range entity.Columns {
+		got, ok := existing[col.Name]
+		if !ok {
+			return fmt.Errorf("existing table %s.%s missing column %s", t.schema, entity.TargetTable, col.Name)
+		}
+		expected := strings.ToLower(strings.TrimSpace(t.mapColumnType(col.Type)))
+		if !postgresTypeCompatible(expected, got) {
+			return fmt.Errorf("existing table %s.%s column %s type mismatch: expected %s, got %s", t.schema, entity.TargetTable, col.Name, expected, got)
+		}
+	}
+	return nil
 }
 
 func (t *PostgresTarget) mapColumnType(colType domain.ColumnType) string {
@@ -104,6 +139,24 @@ func (t *PostgresTarget) mapColumnType(colType domain.ColumnType) string {
 	}
 }
 
+func postgresTypeCompatible(expected, actual string) bool {
+	if expected == actual {
+		return true
+	}
+	switch expected {
+	case "varchar(255)":
+		return actual == "character varying" || actual == "text"
+	case "double precision":
+		return actual == "double precision" || actual == "real"
+	case "integer":
+		return actual == "integer" || actual == "smallint"
+	case "timestamp":
+		return actual == "timestamp without time zone" || actual == "timestamp with time zone" || actual == "timestamp"
+	default:
+		return false
+	}
+}
+
 func (t *PostgresTarget) TruncateTable(tableName string) error {
 	_, err := t.db.Exec(fmt.Sprintf("TRUNCATE TABLE %s.%s", t.schema, tableName))
 	return err
@@ -121,13 +174,13 @@ func (t *PostgresTarget) InsertBatch(tableName string, columns []string, rows []
 
 	placeholders := make([]string, len(rows))
 	args := make([]interface{}, 0, len(rows)*len(columns))
-	
+
 	for i, row := range rows {
 		rowPlaceholders := make([]string, len(columns))
 		for j := range columns {
 			paramNum := i*len(columns) + j + 1
 			rowPlaceholders[j] = fmt.Sprintf("$%d", paramNum)
-			
+
 			val := row[j]
 			if t, ok := val.(time.Time); ok {
 				args = append(args, t)

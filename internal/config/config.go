@@ -2,31 +2,40 @@ package config
 
 import (
 	"os"
+	"strconv"
 )
+
+func getEnv(key, defaultVal string) string {
+	if val, ok := os.LookupEnv(key); ok && val != "" {
+		return val
+	}
+	return defaultVal
+}
+
+func getEnvInt(key string, defaultVal int) int {
+	if val, ok := os.LookupEnv(key); ok && val != "" {
+		n, err := strconv.Atoi(val)
+		if err == nil {
+			return n
+		}
+	}
+	return defaultVal
+}
 
 type Config struct {
 	ScenariosDir string
-	TargetsDir   string
 	RunsDBPath   string
-	LogLevel     string
 	BindAddr     string
-	DefaultMode  string
+	LogLevel     string
+	BatchSize    int
 }
 
 func Load() *Config {
 	return &Config{
 		ScenariosDir: getEnv("SDGEN_SCENARIOS_DIR", "./scenarios"),
-		TargetsDir:   getEnv("SDGEN_TARGETS_DIR", "./targets"),
-		RunsDBPath:   getEnv("SDGEN_RUNS_DB", "./sdgen-runs.sqlite"),
+		RunsDBPath:   getEnv("SDGEN_RUNS_DB", "./runs.db"),
+		BindAddr:     getEnv("SDGEN_BIND", "127.0.0.1:8080"),
 		LogLevel:     getEnv("SDGEN_LOG_LEVEL", "info"),
-		BindAddr:     getEnv("SDGEN_BIND_ADDR", ":8080"),
-		DefaultMode:  getEnv("SDGEN_DEFAULT_MODE", "create_if_missing"),
+		BatchSize:    getEnvInt("SDGEN_BATCH_SIZE", 1000),
 	}
-}
-
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
 }
