@@ -1,0 +1,4 @@
+id: dev-sqlite
+name: Development SQLite
+kind: sqlite
+dsn: ./dev.db

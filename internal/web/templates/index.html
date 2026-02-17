@@ -1,0 +1,223 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>sdgen</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 0; }
+    .container { max-width: 980px; margin: 0 auto; padding: 24px; }
+    label { display: block; margin-top: 12px; font-weight: 600; }
+    select, input, textarea { width: 100%; padding: 8px; box-sizing: border-box; }
+    button { margin-top: 12px; padding: 8px 12px; }
+    pre { background: #f6f6f6; padding: 12px; overflow: auto; }
+    .muted { color: #666; font-size: 12px; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border-bottom: 1px solid #eee; padding: 8px; text-align: left; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>sdgen</h1>
+    <p><a href="/targets">Targets</a></p>
+
+    <h2>Run builder</h2>
+    <form id="run-form">
+      <label>Scenario</label>
+      <select id="scenario-select"></select>
+
+      <label>Target</label>
+      <select id="target-select"></select>
+
+      <label>Target DB override (optional, postgres)</label>
+      <input id="target-db-input" type="text" placeholder="tenant_a" />
+
+      <label>Mode</label>
+      <select id="mode-select">
+        <option value="create">create</option>
+        <option value="truncate">truncate</option>
+        <option value="append">append</option>
+      </select>
+
+      <label>Scale</label>
+      <input id="scale-input" type="number" step="0.1" min="0.0001" value="1" />
+
+      <label>Entity counts (one per line: entity=123)</label>
+      <textarea id="entity-counts" rows="5" placeholder="users=1000&#10;orders=5000"></textarea>
+
+      <label>Entity scales (one per line: entity=1.5)</label>
+      <textarea id="entity-scales" rows="4" placeholder="events=2.0&#10;sessions=0.5"></textarea>
+
+      <label>Include entities (comma-separated, optional)</label>
+      <input id="include-entities" type="text" placeholder="users,orders,events" />
+
+      <label>Exclude entities (comma-separated, optional)</label>
+      <input id="exclude-entities" type="text" placeholder="debug_logs,tmp_rows" />
+
+      <label>Seed (optional)</label>
+      <input id="seed-input" type="number" />
+
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button id="plan-btn" type="button">Plan</button>
+        <button id="run-btn" type="submit">Run</button>
+      </div>
+    </form>
+
+    <h3>Plan output</h3>
+    <pre id="plan-out" class="muted"></pre>
+
+    <h2>Runs</h2>
+    <div id="runs"></div>
+  </div>
+
+<script>
+async function loadScenarios() {
+  const res = await fetch('/api/v1/scenarios');
+  const scenarios = await res.json();
+  const sel = document.getElementById('scenario-select');
+  sel.innerHTML = '';
+  for (const s of scenarios) {
+    const opt = document.createElement('option');
+    opt.value = s.id;
+    opt.textContent = `${s.name} (${s.version})`;
+    sel.appendChild(opt);
+  }
+}
+
+async function loadTargets() {
+  const res = await fetch('/api/v1/targets');
+  const targets = await res.json();
+  const sel = document.getElementById('target-select');
+  sel.innerHTML = '';
+  for (const t of targets) {
+    const opt = document.createElement('option');
+    opt.value = t.id;
+    opt.textContent = `${t.name} (${t.kind})`;
+    sel.appendChild(opt);
+  }
+}
+
+function parseEntityCounts(text) {
+  const m = {};
+  const lines = text.split('\n').map(s => s.trim()).filter(Boolean);
+  for (const ln of lines) {
+    const parts = ln.split('=');
+    if (parts.length !== 2) continue;
+    const k = parts[0].trim();
+    const v = parseInt(parts[1].trim(), 10);
+    if (!k || !Number.isFinite(v)) continue;
+    m[k] = v;
+  }
+  return Object.keys(m).length ? m : undefined;
+}
+
+function parseEntityScales(text) {
+  const m = {};
+  const lines = text.split('\n').map(s => s.trim()).filter(Boolean);
+  for (const ln of lines) {
+    const parts = ln.split('=');
+    if (parts.length !== 2) continue;
+    const k = parts[0].trim();
+    const v = parseFloat(parts[1].trim());
+    if (!k || !Number.isFinite(v)) continue;
+    m[k] = v;
+  }
+  return Object.keys(m).length ? m : undefined;
+}
+
+function parseNameList(text) {
+  const names = text.split(',').map(s => s.trim()).filter(Boolean);
+  return names.length ? names : undefined;
+}
+
+async function loadRuns() {
+  const res = await fetch('/api/v1/runs');
+  const runs = await res.json();
+  renderRuns(runs);
+}
+
+function renderRuns(runs) {
+  const root = document.getElementById('runs');
+  if (!runs || !runs.length) {
+    root.innerHTML = '<p class="muted">No runs yet</p>';
+    return;
+  }
+  let html = '<table><thead><tr><th>ID</th><th>Status</th><th>Scenario</th><th>Target</th><th>Started</th></tr></thead><tbody>';
+  for (const r of runs) {
+    html += `<tr>
+      <td><a href="/runs/${r.id}">${r.id}</a></td>
+      <td>${r.status}</td>
+      <td>${r.scenario_name}</td>
+      <td>${r.target_name}</td>
+      <td>${r.started_at}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  root.innerHTML = html;
+}
+
+function buildPayload() {
+  const scenarioID = document.getElementById('scenario-select').value;
+  const targetID = document.getElementById('target-select').value;
+  const targetDB = document.getElementById('target-db-input').value.trim();
+  const mode = document.getElementById('mode-select').value;
+  const seedVal = document.getElementById('seed-input').value;
+  const scaleVal = document.getElementById('scale-input').value;
+  const entityCountsVal = document.getElementById('entity-counts').value;
+  const entityScalesVal = document.getElementById('entity-scales').value;
+  const includeEntitiesVal = document.getElementById('include-entities').value;
+  const excludeEntitiesVal = document.getElementById('exclude-entities').value;
+
+  const payload = { scenario_id: scenarioID, target_id: targetID, mode };
+  if (targetDB) payload.target_database = targetDB;
+  if (seedVal !== '') payload.seed = parseInt(seedVal, 10);
+  if (scaleVal !== '') payload.scale = parseFloat(scaleVal);
+
+  const ec = parseEntityCounts(entityCountsVal);
+  if (ec) payload.entity_counts = ec;
+  const es = parseEntityScales(entityScalesVal);
+  if (es) payload.entity_scales = es;
+  const include = parseNameList(includeEntitiesVal);
+  if (include) payload.include_entities = include;
+  const exclude = parseNameList(excludeEntitiesVal);
+  if (exclude) payload.exclude_entities = exclude;
+  return payload;
+}
+
+document.getElementById('run-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const payload = buildPayload();
+  const res = await fetch('/api/v1/runs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    alert(await res.text());
+    return;
+  }
+  const run = await res.json();
+  window.location.href = `/runs/${run.id}`;
+});
+
+document.getElementById('plan-btn').addEventListener('click', async () => {
+  const payload = buildPayload();
+  const res = await fetch('/api/v1/runs/plan', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const out = document.getElementById('plan-out');
+  out.textContent = res.ok ? JSON.stringify(await res.json(), null, 2) : await res.text();
+});
+
+async function init() {
+  await loadScenarios();
+  await loadTargets();
+  await loadRuns();
+  setInterval(loadRuns, 2000);
+}
+init();
+</script>
+</body>
+</html>
