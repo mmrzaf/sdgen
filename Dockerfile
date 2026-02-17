@@ -34,19 +34,17 @@ COPY --from=builder /out/app /app/app
 
 COPY internal/web/templates /app/internal/web/templates
 COPY scenarios /app/scenarios
-COPY targets /app/targets
 
 ENV SDGEN_SCENARIOS_DIR=/app/scenarios \
-    SDGEN_TARGETS_DIR=/app/targets \
-    SDGEN_RUNS_DB=/app/sdgen-runs.sqlite \
+    SDGEN_RUNS_DB=/data/runs.db \
     SDGEN_LOG_LEVEL=info \
-    SDGEN_BIND_ADDR=:8080 \
+    SDGEN_BIND=:8080 \
     PORT=8080
 
 EXPOSE 8080
 
 RUN addgroup -S app && adduser -S app -G app
+RUN mkdir -p /data && chown -R app:app /data
 USER app
 
 ENTRYPOINT ["/app/app"]
-

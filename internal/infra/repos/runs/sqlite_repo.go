@@ -4,6 +4,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -20,12 +23,33 @@ func NewSQLiteRepository(path string) *SQLiteRepository {
 }
 
 func (r *SQLiteRepository) Init() error {
+	if err := ensureDBDirectory(r.dbPath); err != nil {
+		return err
+	}
 	db, err := sql.Open("sqlite3", r.dbPath)
 	if err != nil {
 		return err
 	}
 	r.db = db
 	return r.applyMigrations()
+}
+
+func ensureDBDirectory(dbPath string) error {
+	trimmed := strings.TrimSpace(dbPath)
+	if trimmed == "" || trimmed == ":memory:" || strings.HasPrefix(trimmed, "file::memory:") {
+		return nil
+	}
+	if strings.HasPrefix(trimmed, "file:") {
+		trimmed = strings.TrimPrefix(trimmed, "file:")
+		if i := strings.Index(trimmed, "?"); i >= 0 {
+			trimmed = trimmed[:i]
+		}
+	}
+	dir := filepath.Dir(trimmed)
+	if dir == "." || dir == "/" || dir == "" {
+		return nil
+	}
+	return os.MkdirAll(dir, 0o755)
 }
 
 func (r *SQLiteRepository) DB() *sql.DB { return r.db }
