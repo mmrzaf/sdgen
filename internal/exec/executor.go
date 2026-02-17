@@ -21,13 +21,27 @@ type Target interface {
 
 type Executor struct {
 	genRegistry *registry.GeneratorRegistry
+	batchSize   int
 }
 
-func NewExecutor(genRegistry *registry.GeneratorRegistry) *Executor {
-	return &Executor{genRegistry: genRegistry}
+type ProgressEvent struct {
+	EntityName      string
+	EntityStarted   bool
+	EntityCompleted bool
+	RowsDelta       int64
+	RowsTotal       int64
+	EntitiesDone    int
+	EntitiesTotal   int
 }
 
-func (e *Executor) Execute(scenario *domain.Scenario, target Target, seed int64, mode string) (*domain.RunStats, error) {
+func NewExecutor(genRegistry *registry.GeneratorRegistry, batchSize int) *Executor {
+	if batchSize <= 0 {
+		batchSize = 1000
+	}
+	return &Executor{genRegistry: genRegistry, batchSize: batchSize}
+}
+
+func (e *Executor) Execute(scenario *domain.Scenario, target Target, seed int64, mode string, onProgress func(ProgressEvent)) (*domain.RunStats, error) {
 	if err := target.Connect(); err != nil {
 		return nil, fmt.Errorf("failed to connect to target: %w", err)
 	}
@@ -48,37 +62,38 @@ func (e *Executor) Execute(scenario *domain.Scenario, target Target, seed int64,
 		EntityStats: make([]domain.EntityRunStats, 0),
 	}
 
+	entitiesDone := 0
 	for _, entityName := range order {
 		entity := entityMap[entityName]
 		startTime := time.Now()
+		if onProgress != nil {
+			onProgress(ProgressEvent{
+				EntityName:    entity.Name,
+				EntityStarted: true,
+				RowsTotal:     entity.Rows,
+				EntitiesDone:  entitiesDone,
+				EntitiesTotal: len(order),
+			})
+		}
 
 		entitySeed := seed + int64(len(entityName))
 		rng := rand.New(rand.NewSource(entitySeed))
 
-		entityMode := mode
-		if entity.TableMode != "" {
-			entityMode = entity.TableMode
-		}
-
-		if entityMode == "" {
-			entityMode = domain.TableModeCreateIfMissing
-		}
-
-		switch entityMode {
-		case domain.TableModeCreateIfMissing:
+		switch mode {
+		case domain.TableModeCreate:
 			if err := target.CreateTableIfNotExists(entity); err != nil {
 				return nil, fmt.Errorf("failed to create table for entity '%s': %w", entity.Name, err)
 			}
-		case domain.TableModeTruncateThenInsert:
+		case domain.TableModeTruncate:
 			if err := target.CreateTableIfNotExists(entity); err != nil {
 				return nil, fmt.Errorf("failed to create table for entity '%s': %w", entity.Name, err)
 			}
 			if err := target.TruncateTable(entity.TargetTable); err != nil {
 				return nil, fmt.Errorf("failed to truncate table for entity '%s': %w", entity.Name, err)
 			}
-		case domain.TableModeAppendOnly:
+		case domain.TableModeAppend:
 		default:
-			return nil, fmt.Errorf("unknown table mode: %s", entityMode)
+			return nil, fmt.Errorf("unknown table mode: %s", mode)
 		}
 
 		columnNames := make([]string, len(entity.Columns))
@@ -99,8 +114,7 @@ func (e *Executor) Execute(scenario *domain.Scenario, target Target, seed int64,
 			}
 		}
 
-		const batchSize = 1000
-		batch := make([][]interface{}, 0, batchSize)
+		batch := make([][]interface{}, 0, e.batchSize)
 
 		for rowIdx := int64(0); rowIdx < entity.Rows; rowIdx++ {
 			row := make([]interface{}, len(entity.Columns))
@@ -124,9 +138,18 @@ func (e *Executor) Execute(scenario *domain.Scenario, target Target, seed int64,
 
 			batch = append(batch, row)
 
-			if len(batch) >= batchSize {
+			if len(batch) >= e.batchSize {
 				if err := target.InsertBatch(entity.TargetTable, columnNames, batch); err != nil {
 					return nil, fmt.Errorf("failed to insert batch for entity '%s': %w", entity.Name, err)
+				}
+				if onProgress != nil {
+					onProgress(ProgressEvent{
+						EntityName:    entity.Name,
+						RowsDelta:     int64(len(batch)),
+						RowsTotal:     entity.Rows,
+						EntitiesDone:  entitiesDone,
+						EntitiesTotal: len(order),
+					})
 				}
 				batch = batch[:0]
 			}
@@ -135,6 +158,15 @@ func (e *Executor) Execute(scenario *domain.Scenario, target Target, seed int64,
 		if len(batch) > 0 {
 			if err := target.InsertBatch(entity.TargetTable, columnNames, batch); err != nil {
 				return nil, fmt.Errorf("failed to insert final batch for entity '%s': %w", entity.Name, err)
+			}
+			if onProgress != nil {
+				onProgress(ProgressEvent{
+					EntityName:    entity.Name,
+					RowsDelta:     int64(len(batch)),
+					RowsTotal:     entity.Rows,
+					EntitiesDone:  entitiesDone,
+					EntitiesTotal: len(order),
+				})
 			}
 		}
 
@@ -145,6 +177,16 @@ func (e *Executor) Execute(scenario *domain.Scenario, target Target, seed int64,
 			DurationSeconds: duration.Seconds(),
 		})
 		stats.TotalRows += entity.Rows
+		entitiesDone++
+		if onProgress != nil {
+			onProgress(ProgressEvent{
+				EntityName:      entity.Name,
+				EntityCompleted: true,
+				RowsTotal:       entity.Rows,
+				EntitiesDone:    entitiesDone,
+				EntitiesTotal:   len(order),
+			})
+		}
 	}
 
 	stats.EntitiesGenerated = len(order)
