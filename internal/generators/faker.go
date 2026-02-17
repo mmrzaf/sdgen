@@ -42,11 +42,11 @@ type FakerDeviceNameGenerator struct{}
 func (g *FakerDeviceNameGenerator) Generate(rng *rand.Rand, ctx GeneratorContext) (interface{}, error) {
 	prefixes := []string{"Sensor", "Device", "Meter", "Gauge", "Monitor", "Detector", "Reader", "Tracker"}
 	suffixes := []string{"Alpha", "Beta", "Gamma", "Delta", "Prime", "Pro", "Max", "Plus"}
-	
+
 	prefix := prefixes[rng.Intn(len(prefixes))]
 	suffix := suffixes[rng.Intn(len(suffixes))]
 	number := rng.Intn(9999)
-	
+
 	return faker.Username() + "-" + prefix + "-" + suffix + "-" + faker.Word() + "-" + string(rune('0'+number%10)), nil
 }
 
