@@ -13,28 +13,47 @@ import (
 	"github.com/mmrzaf/sdgen/internal/registry"
 )
 
-func TestTargetTestAndPlan_SQLite(t *testing.T) {
-	dbf, err := os.CreateTemp("", "sdgen_int_*.db")
-	if err != nil {
-		t.Fatal(err)
+func testPostgresDSN(t *testing.T) string {
+	t.Helper()
+	dsn := os.Getenv("SDGEN_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("set SDGEN_TEST_POSTGRES_DSN to run integration tests")
 	}
-	_ = dbf.Close()
-	defer os.Remove(dbf.Name())
+	return dsn
+}
 
-	runRepo := runs.NewSQLiteRepository(dbf.Name())
+func testTargetPostgresDSN(t *testing.T) string {
+	t.Helper()
+	if dsn := os.Getenv("SDGEN_TEST_TARGET_POSTGRES_DSN"); dsn != "" {
+		return dsn
+	}
+	return testPostgresDSN(t)
+}
+
+func newIntegrationService(t *testing.T) (*RunService, *targets.PostgresRepository) {
+	t.Helper()
+	runRepo := runs.NewPostgresRepository(testPostgresDSN(t))
 	if err := runRepo.Init(); err != nil {
 		t.Fatal(err)
 	}
-	targetRepo := targets.NewSQLiteRepository(runRepo.DB())
+	if _, err := runRepo.DB().Exec(`TRUNCATE TABLE run_logs, target_checks, targets, runs`); err != nil {
+		t.Fatal(err)
+	}
+	targetRepo := targets.NewPostgresRepository(runRepo.DB())
 	scRepo := scenarios.NewFileRepository("./does-not-matter")
 	logger := logging.NewLogger("error")
 	genRegistry := registry.DefaultGeneratorRegistry()
 	svc := NewRunService(scRepo, targetRepo, runRepo, genRegistry, logger, 1000)
+	return svc, targetRepo
+}
 
+func TestTargetTestAndPlan_Postgres(t *testing.T) {
+	svc, targetRepo := newIntegrationService(t)
 	tgt := &domain.TargetConfig{
-		Name: "sqlite1",
-		Kind: "sqlite",
-		DSN:  dbf.Name(),
+		Name:   "pg1",
+		Kind:   "postgres",
+		DSN:    testTargetPostgresDSN(t),
+		Schema: "public",
 	}
 	if err := targetRepo.Create(tgt); err != nil {
 		t.Fatal(err)
@@ -112,23 +131,8 @@ func TestTargetTestAndPlan_SQLite(t *testing.T) {
 }
 
 func TestPlanRun_AppliesEntityScaleBeforeExplicitCounts(t *testing.T) {
-	dbf, err := os.CreateTemp("", "sdgen_int_*.db")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = dbf.Close()
-	defer os.Remove(dbf.Name())
-
-	runRepo := runs.NewSQLiteRepository(dbf.Name())
-	if err := runRepo.Init(); err != nil {
-		t.Fatal(err)
-	}
-	targetRepo := targets.NewSQLiteRepository(runRepo.DB())
-	scRepo := scenarios.NewFileRepository("./does-not-matter")
-	logger := logging.NewLogger("error")
-	svc := NewRunService(scRepo, targetRepo, runRepo, registry.DefaultGeneratorRegistry(), logger, 1000)
-
-	tgt := &domain.TargetConfig{Name: "sqlite2", Kind: "sqlite", DSN: dbf.Name()}
+	svc, targetRepo := newIntegrationService(t)
+	tgt := &domain.TargetConfig{Name: "pg2", Kind: "postgres", DSN: testTargetPostgresDSN(t), Schema: "public"}
 	if err := targetRepo.Create(tgt); err != nil {
 		t.Fatal(err)
 	}
@@ -170,23 +174,8 @@ func TestPlanRun_AppliesEntityScaleBeforeExplicitCounts(t *testing.T) {
 }
 
 func TestPlanRun_IncludeExcludeEntities(t *testing.T) {
-	dbf, err := os.CreateTemp("", "sdgen_int_*.db")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = dbf.Close()
-	defer os.Remove(dbf.Name())
-
-	runRepo := runs.NewSQLiteRepository(dbf.Name())
-	if err := runRepo.Init(); err != nil {
-		t.Fatal(err)
-	}
-	targetRepo := targets.NewSQLiteRepository(runRepo.DB())
-	scRepo := scenarios.NewFileRepository("./does-not-matter")
-	logger := logging.NewLogger("error")
-	svc := NewRunService(scRepo, targetRepo, runRepo, registry.DefaultGeneratorRegistry(), logger, 1000)
-
-	tgt := &domain.TargetConfig{Name: "sqlite3", Kind: "sqlite", DSN: dbf.Name()}
+	svc, targetRepo := newIntegrationService(t)
+	tgt := &domain.TargetConfig{Name: "pg3", Kind: "postgres", DSN: testTargetPostgresDSN(t), Schema: "public"}
 	if err := targetRepo.Create(tgt); err != nil {
 		t.Fatal(err)
 	}
@@ -237,29 +226,8 @@ func TestPlanRun_IncludeExcludeEntities(t *testing.T) {
 	}
 }
 
-func TestStartRun_CompletesSuccess_SQLite(t *testing.T) {
-	dbf, err := os.CreateTemp("", "sdgen_int_target_*.db")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = dbf.Close()
-	defer os.Remove(dbf.Name())
-
-	runsDB, err := os.CreateTemp("", "sdgen_int_runs_*.db")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = runsDB.Close()
-	defer os.Remove(runsDB.Name())
-
-	runRepo := runs.NewSQLiteRepository(runsDB.Name())
-	if err := runRepo.Init(); err != nil {
-		t.Fatal(err)
-	}
-	targetRepo := targets.NewSQLiteRepository(runRepo.DB())
-	scRepo := scenarios.NewFileRepository("./does-not-matter")
-	logger := logging.NewLogger("error")
-	svc := NewRunService(scRepo, targetRepo, runRepo, registry.DefaultGeneratorRegistry(), logger, 1000)
+func TestStartRun_CompletesSuccess_Postgres(t *testing.T) {
+	svc, _ := newIntegrationService(t)
 
 	req := &domain.RunRequest{
 		Scenario: &domain.Scenario{
@@ -279,9 +247,10 @@ func TestStartRun_CompletesSuccess_SQLite(t *testing.T) {
 			},
 		},
 		Target: &domain.TargetConfig{
-			Name: "inline-sqlite",
-			Kind: "sqlite",
-			DSN:  dbf.Name(),
+			Name:   "inline-pg",
+			Kind:   "postgres",
+			DSN:    testTargetPostgresDSN(t),
+			Schema: "public",
 		},
 		Mode: "create",
 	}

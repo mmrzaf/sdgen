@@ -83,7 +83,6 @@ Top-level layout:
       - `runs/` — run repository (runs DB)
     - `targets/`
       - `postgres/` — Postgres target implementation
-      - `sqlite/` — SQLite target implementation
   - `registry/` — generator registry
   - `generators/` — predefined generators
   - `validation/` — schema validation, dependency ordering, identifier safety checks
@@ -135,7 +134,7 @@ Fields:
 
 - `id` (generated; stable)
 - `name` (human label)
-- `kind` in `{postgres, sqlite}`
+- `kind` in `{postgres}`
 - `dsn` (stored raw internally; redacted in responses)
 - `schema` (postgres only; optional; default `public`)
 - `options` (future extension)
@@ -173,7 +172,6 @@ Must-have generators (v0):
 ### 6.1 Supported targets
 
 - Postgres
-- SQLite
 
 ### 6.2 Table handling modes (run-level)
 
@@ -266,7 +264,7 @@ Resolution order:
 
 ## 9. Persistence: runs DB schema
 
-The runs DB (SQLite) stores:
+The runs DB stores:
 
 - `runs` (run metadata + stats)
 - `targets` (managed targets)
@@ -294,7 +292,7 @@ Binary: `sdgen`
 ### 10.1 Global flags
 
 - `--scenarios-dir` (default `./scenarios`)
-- `--runs-db` (default `./runs.db`)
+- `--db` (default from `SDGEN_DB` loaded via environment/.env; required when not passed)
 - `--log-level` (info/debug)
 
 ### 10.2 Commands
@@ -307,8 +305,8 @@ Binary: `sdgen`
 
 #### Targets (DB-backed)
 
-- `sdgen target add --name <name> --kind <postgres|sqlite> [--schema <schema>] --dsn <dsn>`
-- `sdgen target update <id> --name <name> --kind <postgres|sqlite> [--schema <schema>] --dsn <dsn>`
+- `sdgen target add --name <name> --kind <postgres> [--schema <schema>] --dsn <dsn>`
+- `sdgen target update <id> --name <name> --kind <postgres> [--schema <schema>] --dsn <dsn>`
 - `sdgen target rm <id>`
 - `sdgen target list` (DSNs redacted)
 - `sdgen target show <id>` (DSNs redacted)
@@ -514,7 +512,7 @@ Quality:
 
 Forward-looking (planned, not implemented):
 
-- new targets via registry (MySQL, ClickHouse, file output)
+- new targets via registry (additional SQL engines, ClickHouse, file output)
 - more generator types (seasonality, correlated fields)
 - async workers / run queue
 - scenario storage in DB + web editor

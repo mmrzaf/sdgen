@@ -1,0 +1,32 @@
+# VCS
+.git
+.gitignore
+
+# Local env/secrets
+.env
+.env.*
+!.env.example
+
+# Build outputs and caches
+bin/
+coverage.*
+*.out
+*.test
+*.prof
+
+# Go build/work files
+go.work
+go.work.sum
+
+# IDE/editor
+.vscode/
+.idea/
+
+# OS junk
+.DS_Store
+
+# Local runtime artifacts
+*.db
+
+# Docs not needed at runtime image build context
+AGENTS.md

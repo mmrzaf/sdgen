@@ -1,6 +1,6 @@
 # sdgen — Synthetic Data Generator
 
-`sdgen` generates deterministic synthetic datasets from versioned, file-backed **scenarios** and loads them into DB-backed **targets** (PostgreSQL, SQLite, Elasticsearch). It ships with a CLI, an HTTP API, and a small web UI.
+`sdgen` generates deterministic synthetic datasets from versioned, file-backed **scenarios** and loads them into DB-backed **targets** (PostgreSQL, Elasticsearch). It ships with a CLI, an HTTP API, and a small web UI.
 
 ---
 
@@ -14,13 +14,13 @@
 
 ### Targets (managed via UI/CLI/API)
 
-- Stored in the existing SQLite **runs DB**.
+- Stored in the sdgen PostgreSQL **metadata DB**.
 - Support create/update/delete and **test connection**.
 - DSNs are stored raw internally, but are **redacted** in API responses and the UI.
 
 ### Runs
 
-- Runs are created via API/CLI and tracked in the SQLite **runs DB**.
+- Runs are created via API/CLI and tracked in the sdgen PostgreSQL **metadata DB**.
 - Run-time row counts are controlled by the **run request**, not by editing scenarios:
   - `scale` (float), optional per-entity `entity_scales`, optional `entity_counts`
   - optional `include_entities` / `exclude_entities`
@@ -61,10 +61,13 @@ Web UI:
 Environment variables:
 
 - `SDGEN_SCENARIOS_DIR` — Scenarios directory (default: `./scenarios`)
-- `SDGEN_RUNS_DB` — Runs database path (default: `./runs.db`)
+- `SDGEN_DB` — Runs/targets metadata database DSN (required)
 - `SDGEN_LOG_LEVEL` — Log level (default: `info`)
 - `SDGEN_BIND` — API bind address (default: `127.0.0.1:8080`)
 - `SDGEN_BATCH_SIZE` — Insert batch size (default: `1000`)
+
+`.env` is loaded automatically from the current working directory if present.
+Use `.env.example` as the template for your local `.env`.
 
 ---
 
@@ -92,12 +95,6 @@ Validate:
 
 ### Targets
 
-Add (sqlite):
-
-```bash
-./bin/sdgen target add --name dev-sqlite --kind sqlite --dsn ./dev.sqlite
-```
-
 Add (postgres):
 
 ```bash
@@ -119,7 +116,7 @@ Add (elasticsearch):
 Update:
 
 ```bash
-./bin/sdgen target update <target-id> --name dev-sqlite --kind sqlite --dsn ./dev.sqlite
+./bin/sdgen target update <target-id> --name dev-pg --kind postgres --schema public --dsn "postgres://user:pass@localhost:5432/db?sslmode=disable"
 ```
 
 List (DSNs redacted):

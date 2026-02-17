@@ -274,13 +274,6 @@ func (v *Validator) ValidateTarget(t *domain.TargetConfig) error {
 	}
 
 	switch t.Kind {
-	case "sqlite":
-		if t.Schema != "" {
-			return errors.New("sqlite targets must not set schema")
-		}
-		if t.Database != "" {
-			return errors.New("sqlite targets must not set database; use dsn path")
-		}
 	case "postgres":
 		if t.Schema != "" && !IsValidIdentifier(t.Schema) {
 			return fmt.Errorf("invalid target schema identifier: %s", t.Schema)

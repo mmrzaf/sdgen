@@ -18,15 +18,14 @@ RUN go mod download
 
 COPY . .
 
-ENV CGO_ENABLED=1 GOOS=linux
+ENV CGO_ENABLED=0 GOOS=linux
 RUN go build -ldflags="-s -w" -o /out/app ./cmd/${TARGET}
 
 FROM alpine:3.20
 
 RUN apk add --no-cache \
     ca-certificates \
-    tzdata \
-    sqlite-libs
+    tzdata
 
 WORKDIR /app
 
@@ -36,7 +35,6 @@ COPY internal/web/templates /app/internal/web/templates
 COPY scenarios /app/scenarios
 
 ENV SDGEN_SCENARIOS_DIR=/app/scenarios \
-    SDGEN_RUNS_DB=/data/runs.db \
     SDGEN_LOG_LEVEL=info \
     SDGEN_BIND=:8080 \
     PORT=8080

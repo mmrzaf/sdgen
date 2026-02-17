@@ -76,8 +76,8 @@ func TestValidateTarget_NewKinds(t *testing.T) {
 		t.Fatalf("expected elasticsearch target valid, got %v", err)
 	}
 
-	sqliteBad := &domain.TargetConfig{Name: "s1", Kind: "sqlite", DSN: "/tmp/x.db", Database: "not_allowed"}
-	if err := v.ValidateTarget(sqliteBad); err == nil {
-		t.Fatal("expected sqlite database field to be rejected")
+	unknownKind := &domain.TargetConfig{Name: "s1", Kind: "unsupported", DSN: "unsupported://localhost/test", Database: "not_allowed"}
+	if err := v.ValidateTarget(unknownKind); err == nil {
+		t.Fatal("expected unsupported target kind to be rejected")
 	}
 }

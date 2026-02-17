@@ -22,7 +22,7 @@ func TestHashRunConfig_IncludesModeSeedAndResolvedCounts(t *testing.T) {
 			},
 		},
 	}
-	tg := &domain.TargetConfig{Kind: "sqlite", DSN: "db.sqlite"}
+	tg := &domain.TargetConfig{Kind: "postgres", DSN: "postgres://localhost:5432/app?sslmode=disable"}
 
 	h1, err := HashRunConfig(sc, tg, "create", 1.0, map[string]int64{"users": 10}, 11)
 	if err != nil {

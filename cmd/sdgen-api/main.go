@@ -21,7 +21,7 @@ func main() {
 	cfg := config.Load()
 
 	scenariosDir := flag.String("scenarios-dir", cfg.ScenariosDir, "Scenarios directory")
-	runsDB := flag.String("runs-db", cfg.RunsDBPath, "Runs database path")
+	sdgenDB := flag.String("db", cfg.SDGenDBDSN, "sdgen metadata database DSN (PostgreSQL)")
 	bindAddr := flag.String("bind", cfg.BindAddr, "Bind address")
 	logLevel := flag.String("log-level", cfg.LogLevel, "Log level")
 	batchSize := flag.Int("batch-size", cfg.BatchSize, "Default insert batch size")
@@ -31,12 +31,12 @@ func main() {
 
 	scenarioRepo := scenarios.NewFileRepository(*scenariosDir)
 
-	runRepo := runs.NewSQLiteRepository(*runsDB)
+	runRepo := runs.NewPostgresRepository(*sdgenDB)
 	if err := runRepo.Init(); err != nil {
 		logger.Errorw("startup.failed", map[string]any{"error": err.Error(), "stage": "init_run_repo"})
 		os.Exit(1)
 	}
-	targetRepo := targets.NewSQLiteRepository(runRepo.DB())
+	targetRepo := targets.NewPostgresRepository(runRepo.DB())
 
 	genRegistry := registry.DefaultGeneratorRegistry()
 	runService := app.NewRunService(scenarioRepo, targetRepo, runRepo, genRegistry, logger, *batchSize)

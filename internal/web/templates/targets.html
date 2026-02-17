@@ -37,7 +37,6 @@
       <label>Kind</label>
       <select id="t-kind">
         <option value="postgres">postgres</option>
-        <option value="sqlite">sqlite</option>
         <option value="elasticsearch">elasticsearch</option>
       </select>
     </div>
@@ -59,7 +58,7 @@
   <div class="row">
     <div>
       <label>Port</label>
-      <input id="dsn-port" type="number" placeholder="5432 / 27017 / 9200" />
+      <input id="dsn-port" type="number" placeholder="5432 / 9200" />
     </div>
     <div>
       <label>User</label>
@@ -199,8 +198,6 @@ document.getElementById('build-dsn-btn').addEventListener('click', () => {
     const scheme = extra || 'http';
     const auth = user ? `${encodeURIComponent(user)}:${encodeURIComponent(password)}@` : '';
     dsn = `${scheme}://${auth}${host}:${port}`;
-  } else if (kind === 'sqlite') {
-    dsn = database || './target.sqlite';
   }
   document.getElementById('t-dsn').value = dsn;
 });

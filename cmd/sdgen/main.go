@@ -26,7 +26,7 @@ import (
 
 var (
 	scenariosDir string
-	runsDBPath   string
+	sdgenDBDSN   string
 	logLevel     string
 	batchSize    int
 )
@@ -36,7 +36,7 @@ func main() {
 
 	root := &cobra.Command{Use: "sdgen"}
 	root.PersistentFlags().StringVar(&scenariosDir, "scenarios-dir", cfg.ScenariosDir, "Scenarios directory")
-	root.PersistentFlags().StringVar(&runsDBPath, "runs-db", cfg.RunsDBPath, "Runs database path")
+	root.PersistentFlags().StringVar(&sdgenDBDSN, "db", cfg.SDGenDBDSN, "sdgen metadata database DSN (PostgreSQL)")
 	root.PersistentFlags().StringVar(&logLevel, "log-level", cfg.LogLevel, "Log level")
 	root.PersistentFlags().IntVar(&batchSize, "batch-size", cfg.BatchSize, "Default insert batch size")
 
@@ -122,12 +122,12 @@ func targetCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "target", Short: "Manage targets (DB-backed)"}
 	var format string
 
-	openRepos := func() (*runs.SQLiteRepository, *targets.SQLiteRepository, error) {
-		runRepo := runs.NewSQLiteRepository(runsDBPath)
+	openRepos := func() (*runs.PostgresRepository, *targets.PostgresRepository, error) {
+		runRepo := runs.NewPostgresRepository(sdgenDBDSN)
 		if err := runRepo.Init(); err != nil {
 			return nil, nil, err
 		}
-		return runRepo, targets.NewSQLiteRepository(runRepo.DB()), nil
+		return runRepo, targets.NewPostgresRepository(runRepo.DB()), nil
 	}
 
 	list := &cobra.Command{
@@ -219,7 +219,7 @@ func targetCmd() *cobra.Command {
 	}
 	add.Flags().StringVar(&id, "id", "", "Target id (optional)")
 	add.Flags().StringVar(&name, "name", "", "Target name")
-	add.Flags().StringVar(&kind, "kind", "", "Target kind (postgres|sqlite|elasticsearch)")
+	add.Flags().StringVar(&kind, "kind", "", "Target kind (postgres|elasticsearch)")
 	add.Flags().StringVar(&dsn, "dsn", "", "Target DSN")
 	add.Flags().StringVar(&database, "database", "", "Default database name for postgres targets")
 	add.Flags().StringVar(&schema, "schema", "", "Schema (postgres)")
@@ -257,7 +257,7 @@ func targetCmd() *cobra.Command {
 		},
 	}
 	update.Flags().StringVar(&name, "name", "", "Target name")
-	update.Flags().StringVar(&kind, "kind", "", "Target kind (postgres|sqlite|elasticsearch)")
+	update.Flags().StringVar(&kind, "kind", "", "Target kind (postgres|elasticsearch)")
 	update.Flags().StringVar(&dsn, "dsn", "", "Target DSN")
 	update.Flags().StringVar(&database, "database", "", "Default database name for postgres targets")
 	update.Flags().StringVar(&schema, "schema", "", "Schema (postgres)")
@@ -287,11 +287,11 @@ func targetCmd() *cobra.Command {
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := logging.NewLogger(logLevel)
-			runRepo := runs.NewSQLiteRepository(runsDBPath)
+			runRepo := runs.NewPostgresRepository(sdgenDBDSN)
 			if err := runRepo.Init(); err != nil {
 				return err
 			}
-			targetRepo := targets.NewSQLiteRepository(runRepo.DB())
+			targetRepo := targets.NewPostgresRepository(runRepo.DB())
 			scRepo := scenarios.NewFileRepository(scenariosDir)
 			svc := app.NewRunService(scRepo, targetRepo, runRepo, registry.DefaultGeneratorRegistry(), logger, batchSize)
 
@@ -342,11 +342,11 @@ func runCmd() *cobra.Command {
 
 			scRepo := scenarios.NewFileRepository(scenariosDir)
 
-			runRepo := runs.NewSQLiteRepository(runsDBPath)
+			runRepo := runs.NewPostgresRepository(sdgenDBDSN)
 			if err := runRepo.Init(); err != nil {
 				return err
 			}
-			targetRepo := targets.NewSQLiteRepository(runRepo.DB())
+			targetRepo := targets.NewPostgresRepository(runRepo.DB())
 			svc := app.NewRunService(scRepo, targetRepo, runRepo, registry.DefaultGeneratorRegistry(), logger, batchSize)
 
 			req := &domain.RunRequest{Mode: mode}
@@ -470,7 +470,7 @@ func runCmd() *cobra.Command {
 
 	start.Flags().StringVar(&targetID, "target-id", "", "Target ID")
 	start.Flags().StringVar(&targetDSN, "target", "", "Inline target DSN (not stored)")
-	start.Flags().StringVar(&targetKind, "target-kind", "", "Inline target kind (postgres|sqlite|elasticsearch)")
+	start.Flags().StringVar(&targetKind, "target-kind", "", "Inline target kind (postgres|elasticsearch)")
 	start.Flags().StringVar(&targetDB, "target-db", "", "Target database override for this run (postgres)")
 	start.Flags().StringVar(&targetSchema, "target-schema", "", "Inline target schema (postgres)")
 
@@ -497,11 +497,11 @@ func runCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := logging.NewLogger(logLevel)
 			scRepo := scenarios.NewFileRepository(scenariosDir)
-			runRepo := runs.NewSQLiteRepository(runsDBPath)
+			runRepo := runs.NewPostgresRepository(sdgenDBDSN)
 			if err := runRepo.Init(); err != nil {
 				return err
 			}
-			targetRepo := targets.NewSQLiteRepository(runRepo.DB())
+			targetRepo := targets.NewPostgresRepository(runRepo.DB())
 			svc := app.NewRunService(scRepo, targetRepo, runRepo, registry.DefaultGeneratorRegistry(), logger, batchSize)
 			runsList, err := svc.ListRuns(limit)
 			if err != nil {
@@ -523,11 +523,11 @@ func runCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			logger := logging.NewLogger(logLevel)
 			scRepo := scenarios.NewFileRepository(scenariosDir)
-			runRepo := runs.NewSQLiteRepository(runsDBPath)
+			runRepo := runs.NewPostgresRepository(sdgenDBDSN)
 			if err := runRepo.Init(); err != nil {
 				return err
 			}
-			targetRepo := targets.NewSQLiteRepository(runRepo.DB())
+			targetRepo := targets.NewPostgresRepository(runRepo.DB())
 			svc := app.NewRunService(scRepo, targetRepo, runRepo, registry.DefaultGeneratorRegistry(), logger, batchSize)
 			run, err := svc.GetRun(args[0])
 			if err != nil {
@@ -590,11 +590,6 @@ func buildDSNFromParts(kind, host string, port int, user, password, database, ss
 			auth += "@"
 		}
 		return fmt.Sprintf("%s://%s%s:%d", scheme, auth, host, port), nil
-	case "sqlite":
-		if database == "" {
-			return "", fmt.Errorf("sqlite DSN builder requires --database with sqlite file path")
-		}
-		return database, nil
 	default:
 		return "", fmt.Errorf("unsupported target kind for DSN builder: %s", kind)
 	}
